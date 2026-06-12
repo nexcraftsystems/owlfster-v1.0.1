@@ -45,6 +45,7 @@ export interface NSRCEntry {
   businessUnit: string;        // "RIB / Affinmax"
   accountClassification: string; // "Account Type"
   statusBlockDesc: string;     // "Action Taken"
+  amount: string;              // Registered/Disputed Amount
   earmarkAmount: string;       // "Earmark Amount" (Amount field requested)
   earmark: string;             // "Earmark" (Earmark field requested)
   remarks: string;             // "Remark"

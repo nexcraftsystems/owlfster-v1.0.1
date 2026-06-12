@@ -99,6 +99,15 @@ export const MALAYSIAN_BANKS: BankFI[] = [
     lengthPattern: "15 digits",
     prefixPattern: "Starts with 12",
     description: "Standard alliance corporate & commercial account numbers spanning 15 digits."
+  },
+  {
+    name: "Touch 'n Go eWallet (TNG Digital)",
+    code: "TNG",
+    matchScore: 0,
+    logoLetter: "TNG",
+    lengthPattern: "10 to 12 digits",
+    prefixPattern: "Starts with 9, 01, or 601 (DuitNow proxy phone)",
+    description: "Major digital wallet in Malaysia. Integrated with dynamic DuitNow transfers."
   }
 ];
 

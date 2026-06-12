@@ -14,6 +14,7 @@ export interface NSRCExcelInput {
   businessUnit: string;
   accountClassification: string;
   statusBlockDesc: string;
+  amount?: string;
   earmarkAmount: string;
   earmark: string;
   remarks: string;
@@ -44,6 +45,7 @@ export async function downloadProtectedNSRCExcel(entry: NSRCExcelInput) {
       "RIB / Affinmax",
       "Account Type",
       "Action Taken",
+      "Disputed Amount",
       "Earmark Amount",
       "Remark",
       "Reason"
@@ -58,9 +60,10 @@ export async function downloadProtectedNSRCExcel(entry: NSRCExcelInput) {
     worksheet.getColumn("F").width = 18;  // RIB / Affinmax
     worksheet.getColumn("G").width = 16;  // Account Type
     worksheet.getColumn("H").width = 30;  // Action Taken
-    worksheet.getColumn("I").width = 18;  // Earmark Amount
-    worksheet.getColumn("J").width = 40;  // Remark
-    worksheet.getColumn("K").width = 20;  // Reason
+    worksheet.getColumn("I").width = 18;  // Disputed Amount
+    worksheet.getColumn("J").width = 18;  // Earmark Amount
+    worksheet.getColumn("K").width = 40;  // Remark
+    worksheet.getColumn("L").width = 20;  // Reason
 
     // Header Row in Row 1
     const headerRow = worksheet.getRow(1);
@@ -72,15 +75,15 @@ export async function downloadProtectedNSRCExcel(entry: NSRCExcelInput) {
       cell.font = { name: "Arial", size: 10, bold: true, color: { argb: "000000" } };
       cell.alignment = { vertical: "middle", horizontal: idx === 0 ? "center" : "left" };
       cell.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FFFF00" } // Core Yellow
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFFF00" } // Core Yellow
       };
       cell.border = {
-        top: { style: "thin", color: { argb: "000000" } },
-        bottom: { style: "double", color: { argb: "000000" } },
-        left: { style: "thin", color: { argb: "000000" } },
-        right: { style: "thin", color: { argb: "000000" } }
+         top: { style: "thin", color: { argb: "000000" } },
+         bottom: { style: "double", color: { argb: "000000" } },
+         left: { style: "thin", color: { argb: "000000" } },
+         right: { style: "thin", color: { argb: "000000" } }
       };
     });
 
@@ -97,6 +100,7 @@ export async function downloadProtectedNSRCExcel(entry: NSRCExcelInput) {
       entry.businessUnit || "", // RIB / Affinmax (businessUnit)
       entry.accountClassification || "", // Account Type (accountClassification)
       entry.statusBlockDesc || "", // Action Taken (statusBlockDesc)
+      entry.amount || "", // Disputed Amount
       entry.earmarkAmount || "", // Earmark Amount
       entry.remarks || "", // Remark (remarks)
       entry.reason || "" // Reason (reason)

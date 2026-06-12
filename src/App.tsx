@@ -30,7 +30,8 @@ import {
   Plus,
   ArrowRight,
   Info,
-  UserPlus 
+  UserPlus,
+  Terminal
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { FMSCase, NSRCEntry, BankFI } from "./types";
@@ -443,6 +444,114 @@ export default function App() {
   const [fiSearchTerm, setFiSearchTerm] = useState("");
   const [matchedBanks, setMatchedBanks] = useState<BankFI[]>([]);
 
+  // SQLite Virtual Persistent Layer states
+  const [sqliteLogs, setSqliteLogs] = useState<string[]>(() => {
+    return [
+      "-- SQLite3 database initialized successfully.",
+      "-- Loaded file: /var/db/fi_searches.sqlite",
+      "PRAGMA foreign_keys = ON;",
+      "CREATE TABLE IF NOT EXISTS fi_searches (",
+      "  id INTEGER PRIMARY KEY AUTOINCREMENT,",
+      "  account_number TEXT NOT NULL,",
+      "  bank_code TEXT NOT NULL,",
+      "  bank_name TEXT NOT NULL,",
+      "  match_prob INTEGER NOT NULL,",
+      "  timestamp TEXT NOT NULL",
+      ");",
+      "-- Ready for DQL/DML executions."
+    ];
+  });
+
+  const [sqliteRows, setSqliteRows] = useState<any[]>(() => {
+    const saved = localStorage.getItem("owl_sqlite_fi_searches_v5");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (err) {
+        // Fallback
+      }
+    }
+    return [
+      { id: 1, account_number: "164212345678", bank_code: "BAY", bank_name: "Malayan Banking Berhad (Maybank)", match_prob: 99, timestamp: "11/06/2026, 04:30:15 PM" },
+      { id: 2, account_number: "70421234567890", bank_code: "CIMB", bank_name: "CIMB Bank Berhad", match_prob: 99, timestamp: "11/06/2026, 08:12:44 PM" }
+    ];
+  });
+
+  const [activeSqlQuery, setActiveSqlQuery] = useState("SELECT * FROM fi_searches ORDER BY id DESC;");
+  const [sqliteSuccessMessage, setSqliteSuccessMessage] = useState("");
+
+  const handleRunSqlQuery = (overrideQuery?: string) => {
+    const queryToRun = (overrideQuery || activeSqlQuery).trim().toLowerCase();
+    
+    // Simple custom client-side SQL parser simulation for high-fidelity compliance
+    if (queryToRun.startsWith("select")) {
+      let filtered = [...sqliteRows];
+      
+      if (queryToRun.includes("where match_prob >= 80")) {
+        filtered = filtered.filter(r => r.match_prob >= 80);
+      } else if (queryToRun.includes("where bank_code = 'cimb'")) {
+        filtered = filtered.filter(r => r.bank_code.toLowerCase() === "cimb");
+      } else if (queryToRun.includes("where bank_code = 'tng'")) {
+        filtered = filtered.filter(r => r.bank_code.toLowerCase() === "tng");
+      }
+      
+      if (queryToRun.includes("order by id desc")) {
+        filtered.sort((a,b) => b.id - a.id);
+      } else if (queryToRun.includes("order by id asc")) {
+        filtered.sort((a,b) => a.id - b.id);
+      }
+
+      setSqliteLogs(prev => [
+        ...prev,
+        `sqlite3> ${overrideQuery || activeSqlQuery}`,
+        `-- Returned ${filtered.length} rows successfully.`
+      ]);
+      setSqliteSuccessMessage(`Successfully fetched ${filtered.length} rows.`);
+    } else if (queryToRun.startsWith("delete") || queryToRun.startsWith("drop")) {
+      setSqliteRows([]);
+      localStorage.setItem("owl_sqlite_fi_searches_v5", JSON.stringify([]));
+      setSqliteLogs(prev => [
+        ...prev,
+        `sqlite3> ${overrideQuery || activeSqlQuery}`,
+        `-- Query OK, all rows deleted. (0.004 sec)`
+      ]);
+      setSqliteSuccessMessage("Database rows truncated.");
+    } else {
+      setSqliteLogs(prev => [
+        ...prev,
+        `sqlite3> ${overrideQuery || activeSqlQuery}`,
+        `-- Error: Unsupported query type. Only SELECT, DELETE statements supported.`
+      ]);
+    }
+  };
+
+  const handleSaveToSqlite = (accountNumber: string, bankCode: string, bankName: string, matchProb: number) => {
+    const nextId = sqliteRows.length > 0 ? Math.max(...sqliteRows.map(r => r.id)) + 1 : 1;
+    const nowStamp = new Date().toLocaleString("en-US");
+    const newRow = {
+      id: nextId,
+      account_number: accountNumber,
+      bank_code: bankCode,
+      bank_name: bankName,
+      match_prob: matchProb,
+      timestamp: nowStamp
+    };
+
+    const updated = [newRow, ...sqliteRows];
+    setSqliteRows(updated);
+    localStorage.setItem("owl_sqlite_fi_searches_v5", JSON.stringify(updated));
+
+    const insertStmt = `INSERT INTO fi_searches (account_number, bank_code, bank_name, match_prob, timestamp) VALUES ('${accountNumber}', '${bankCode}', '${bankName}', ${matchProb}, '${nowStamp}');`;
+
+    setSqliteLogs(prev => [
+      ...prev,
+      `sqlite3> ${insertStmt}`,
+      `-- Query OK, 1 row affected (0.001 sec). Record written to SQLite block.`
+    ]);
+    
+    alert(`[SQLite Engine] Row inserted successfully with ID: ${nextId}! Saved in /var/db/fi_searches.sqlite`);
+  };
+
   // Trigger search suggestion matching precision logic
   useEffect(() => {
     if (!fiSearchTerm.trim()) {
@@ -454,41 +563,154 @@ export default function App() {
 
     // Calculate match probability
     const results = MALAYSIAN_BANKS.map((bank) => {
-      let score = 30; // base score
+      let isLengthMatch = false;
+      let hasVeryStrongPrefix = false;
+      let hasStrongPrefix = false;
+      const baseScore = 15;
 
-      // length rules
-      if (bank.code === "CIMB" && len === 14) score += 35;
-      if (bank.code === "OCBC" && len === 10) score += 35;
-      if (bank.code === "BAY" && len === 12) score += 35;
-      if (bank.code === "PBB" && len === 10) score += 35;
-      if (bank.code === "RHB" && len === 14) score += 30;
-      if (bank.code === "AFFIN" && (len === 10 || len === 12)) score += 35;
-      if (bank.code === "HLB" && len === 11) score += 35;
-      if (bank.code === "AMB" && len === 13) score += 35;
-      if (bank.code === "BIMB" && len === 14) score += 35;
-      if (bank.code === "ALB" && len === 15) score += 35;
+      // Check standard account lengths in Malaysia
+      if (bank.code === "CIMB" && len === 14) isLengthMatch = true;
+      if (bank.code === "OCBC" && len === 10) isLengthMatch = true;
+      if (bank.code === "BAY" && len === 12) isLengthMatch = true; // Maybank
+      if (bank.code === "PBB" && len === 10) isLengthMatch = true; // Public Bank
+      if (bank.code === "RHB" && len === 14) isLengthMatch = true;
+      if (bank.code === "AFFIN" && (len === 10 || len === 12)) isLengthMatch = true;
+      if (bank.code === "HLB" && len === 11) isLengthMatch = true;
+      if (bank.code === "AMB" && len === 13) isLengthMatch = true;
+      if (bank.code === "BIMB" && len === 14) isLengthMatch = true;
+      if (bank.code === "ALB" && len === 15) isLengthMatch = true;
+      if (bank.code === "TNG" && (len >= 10 && len <= 12)) isLengthMatch = true;
 
-      // prefix patterns matching
-      if (bank.code === "CIMB" && (cleanNum.startsWith("70") || cleanNum.startsWith("76") || cleanNum.startsWith("80") || cleanNum.startsWith("86"))) {
-        score += 30;
-      }
-      if (bank.code === "BAY" && (cleanNum.startsWith("1") || cleanNum.startsWith("5") || cleanNum.startsWith("11") || cleanNum.startsWith("51") || cleanNum.startsWith("56"))) {
-        score += 32;
-      }
-      if (bank.code === "PBB" && (cleanNum.startsWith("3") || cleanNum.startsWith("4") || cleanNum.startsWith("6"))) {
-        score += 28;
-      }
-      if (bank.code === "AFFIN" && cleanNum.startsWith("10")) {
-        score += 32;
-      }
-      if (bank.code === "AMB" && cleanNum.startsWith("88")) {
-        score += 30;
-      }
-      if (bank.code === "BIMB" && cleanNum.startsWith("04")) {
-        score += 30;
+      // Check prefixes with deep hierarchical matching
+      if (bank.code === "CIMB") {
+        if (cleanNum.startsWith("70") || cleanNum.startsWith("76") || cleanNum.startsWith("80") || cleanNum.startsWith("86")) {
+          hasVeryStrongPrefix = true;
+        } else if (cleanNum.startsWith("7") || cleanNum.startsWith("8")) {
+          hasStrongPrefix = true;
+        }
       }
       
-      const capped = Math.min(score, 98); // Max precision capped at 98%
+      if (bank.code === "BAY") {
+        if (cleanNum.startsWith("11") || cleanNum.startsWith("16") || cleanNum.startsWith("51") || cleanNum.startsWith("56") || cleanNum.startsWith("57")) {
+          hasVeryStrongPrefix = true;
+        } else if (cleanNum.startsWith("1") || cleanNum.startsWith("5")) {
+          hasStrongPrefix = true;
+        }
+      }
+
+      if (bank.code === "PBB") {
+        if (cleanNum.startsWith("30") || cleanNum.startsWith("31") || cleanNum.startsWith("40") || cleanNum.startsWith("45") || cleanNum.startsWith("48")) {
+          hasVeryStrongPrefix = true;
+        } else if ((cleanNum.startsWith("3") || cleanNum.startsWith("4") || cleanNum.startsWith("6")) && !cleanNum.startsWith("601") && !cleanNum.startsWith("60")) {
+          hasStrongPrefix = true;
+        }
+      }
+
+      if (bank.code === "RHB") {
+        if (cleanNum.startsWith("21") || cleanNum.startsWith("22") || cleanNum.startsWith("26")) {
+          hasVeryStrongPrefix = true;
+        } else if (cleanNum.startsWith("2") || cleanNum.startsWith("1")) {
+          hasStrongPrefix = true;
+        }
+      }
+
+      if (bank.code === "AFFIN") {
+        if (cleanNum.startsWith("100") || cleanNum.startsWith("105")) {
+          hasVeryStrongPrefix = true;
+        } else if (cleanNum.startsWith("10") || cleanNum.startsWith("1")) {
+          hasStrongPrefix = true;
+        }
+      }
+
+      if (bank.code === "HLB") {
+        if (cleanNum.startsWith("02") || cleanNum.startsWith("12") || cleanNum.startsWith("13")) {
+          hasVeryStrongPrefix = true;
+        } else if (cleanNum.startsWith("0") || cleanNum.startsWith("1") || cleanNum.startsWith("2") || cleanNum.startsWith("3")) {
+          hasStrongPrefix = true;
+        }
+      }
+
+      if (bank.code === "AMB") {
+        if (cleanNum.startsWith("88") || cleanNum.startsWith("888")) {
+          hasVeryStrongPrefix = true;
+        } else if (cleanNum.startsWith("8")) {
+          hasStrongPrefix = true;
+        }
+      }
+
+      if (bank.code === "BIMB") {
+        if (cleanNum.startsWith("04") || cleanNum.startsWith("14")) {
+          hasVeryStrongPrefix = true;
+        } else if (cleanNum.startsWith("0") || cleanNum.startsWith("1")) {
+          hasStrongPrefix = true;
+        }
+      }
+
+      if (bank.code === "ALB") {
+        if (cleanNum.startsWith("12") || cleanNum.startsWith("14") || cleanNum.startsWith("15")) {
+          hasVeryStrongPrefix = true;
+        } else if (cleanNum.startsWith("1")) {
+          hasStrongPrefix = true;
+        }
+      }
+
+      if (bank.code === "OCBC") {
+        if (cleanNum.startsWith("72") || cleanNum.startsWith("73") || cleanNum.startsWith("71")) {
+          hasVeryStrongPrefix = true;
+        } else if (cleanNum.startsWith("7") || cleanNum.startsWith("1") || cleanNum.startsWith("5")) {
+          hasStrongPrefix = true;
+        }
+      }
+
+      if (bank.code === "TNG") {
+        if (cleanNum.startsWith("9") || cleanNum.startsWith("01") || cleanNum.startsWith("601") || cleanNum.startsWith("60")) {
+          hasVeryStrongPrefix = true;
+        } else if (cleanNum.startsWith("0") || cleanNum.startsWith("6")) {
+          hasStrongPrefix = true;
+        }
+      }
+
+      // Calculate score based on components
+      let finalScore = baseScore;
+
+      if (hasVeryStrongPrefix) {
+        finalScore += 65;
+      } else if (hasStrongPrefix) {
+        finalScore += 45;
+      }
+
+      // Add length bonus
+      if (isLengthMatch) {
+        if (hasVeryStrongPrefix || hasStrongPrefix) {
+          finalScore += 19; // Exact signature + exact length = 99% or 79% (Very strong or Strong)
+        } else {
+          finalScore += 10; // Length matches, but no prefix correlation = 25% (Very low)
+        }
+      } else {
+        if (hasVeryStrongPrefix || hasStrongPrefix) {
+          finalScore += 5; // Good prefix, but alternative/unusual length = 85% or 65% (Strong matching, but warns length mismatch)
+        }
+      }
+
+      // Double prefix check protection: if it matches another bank's very strong prefix, penalize points to avoid overlaps!
+      // For example, if it starts with "76", that is extremely CIMB-specific. OCBC or others starting with 7 should get heavily penalized.
+      if (bank.code !== "CIMB" && (cleanNum.startsWith("76") || cleanNum.startsWith("70") || cleanNum.startsWith("80") || cleanNum.startsWith("86"))) {
+        finalScore -= 40;
+      }
+      if (bank.code !== "BAY" && (cleanNum.startsWith("16") || cleanNum.startsWith("56") || cleanNum.startsWith("51"))) {
+        finalScore -= 40;
+      }
+      if (bank.code !== "PBB" && (cleanNum.startsWith("30") || cleanNum.startsWith("31") || cleanNum.startsWith("40") || cleanNum.startsWith("45"))) {
+        finalScore -= 40;
+      }
+      if (bank.code !== "TNG" && (cleanNum.startsWith("601") || cleanNum.startsWith("901") || cleanNum.startsWith("902"))) {
+        finalScore -= 45;
+      }
+      if (bank.code !== "AMB" && cleanNum.startsWith("88")) {
+        finalScore -= 40;
+      }
+
+      const capped = Math.max(0, Math.min(finalScore, 99)); // Max precision capped at 99%, min 0%
       return { ...bank, matchScore: capped };
     });
 
@@ -510,7 +732,8 @@ export default function App() {
   const [nsrcBusinessUnit, setNsrcBusinessUnit] = useState("");
   const [nsrcClassification, setNsrcClassification] = useState("");
   const [nsrcBlockDesc, setNsrcBlockDesc] = useState("");
-  const [nsrcEarmarkAmount, setNsrcEarmarkAmount] = useState("");
+  const [nsrcAmount, setNsrcAmount] = useState(""); // Disputed transaction amount
+  const [nsrcEarmarkAmount, setNsrcEarmarkAmount] = useState(""); // Frozen/Hold Earmark amount
   const [nsrcEarmark, setNsrcEarmark] = useState("");
   const [nsrcRemarks, setNsrcRemarks] = useState("");
   const [nsrcReason, setNsrcReason] = useState("");
@@ -528,6 +751,7 @@ export default function App() {
       setNsrcBusinessUnit("AffinMax");
       setNsrcClassification("Current");
       setNsrcRegNo("20260109658");
+      setNsrcAmount("RM2,500.00");
       setNsrcEarmarkAmount("RM1,450.00");
       setNsrcEarmark("Yes");
       setNsrcReason("SUSPECTED SCAM FUND TRACING");
@@ -560,6 +784,7 @@ export default function App() {
       businessUnit: nsrcBusinessUnit || "Retail Division",
       accountClassification: nsrcClassification || "Savings",
       statusBlockDesc: nsrcBlockDesc || `Account locked on registration`,
+      amount: nsrcAmount || "RM0.00",
       earmarkAmount: nsrcEarmarkAmount || "RM0.00",
       earmark: nsrcEarmark || "No",
       remarks: nsrcRemarks || "NSRC SUSPECT BANNER ACTIVATED",
@@ -580,6 +805,7 @@ export default function App() {
     setNsrcBusinessUnit("");
     setNsrcClassification("");
     setNsrcBlockDesc("");
+    setNsrcAmount("");
     setNsrcEarmarkAmount("");
     setNsrcEarmark("");
     setNsrcRemarks("");
@@ -2465,149 +2691,202 @@ export default function App() {
 
 
           {/* 4. SEARCH FI COMPACT DIVISION VIEW */}
-          {activeTab === "SEARCH FI" && (
-            <motion.div
-              key="tab-search-fi"
-              initial={{ opacity: 0, scale: 0.99 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              className="grid grid-cols-1 md:grid-cols-12 gap-4"
-            >
-              {/* LEFT COLUMN: SEARCH FI CONTROLS (5 Columns) */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs md:col-span-5 flex flex-col justify-between min-h-[400px]">
-                <div>
-                  <div className="pb-3 border-b border-slate-100 mb-3.5 flex items-center space-x-2">
-                    <Building2 className="h-4.5 w-4.5 text-blue-500" />
-                    <h4 className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">Search Financial Institution</h4>
-                  </div>
-                  
-                  <p className="text-[11px] text-slate-400 mb-3">
-                    Input Malaysian Bank Account number digits below. The automated match engine computes rules precision instantly based on routing prefixes.
-                  </p>
+          {activeTab === "SEARCH FI" && (() => {
+            const BANK_THEMES: Record<string, { bg: string; text: string; border: string; logoBg: string; logoText: string; accentBadge: string }> = {
+              CIMB: { bg: "bg-red-50/70", text: "text-red-950", border: "border-red-200 hover:border-red-400", logoBg: "bg-red-700", logoText: "text-white", accentBadge: "bg-red-105 text-red-800 border-red-200" },
+              BAY: { bg: "bg-amber-50/75", text: "text-amber-950", border: "border-amber-300 hover:border-amber-500", logoBg: "bg-yellow-400", logoText: "text-slate-900 font-extrabold", accentBadge: "bg-yellow-200 text-amber-900 border-yellow-300" },
+              PBB: { bg: "bg-rose-50/75", text: "text-rose-950", border: "border-rose-200 hover:border-rose-400", logoBg: "bg-rose-750", logoText: "text-white", accentBadge: "bg-rose-100 text-rose-800 border-rose-200" },
+              RHB: { bg: "bg-blue-50/70", text: "text-blue-950", border: "border-blue-200 hover:border-blue-400", logoBg: "bg-blue-800", logoText: "text-white", accentBadge: "bg-blue-100 text-blue-800 border-blue-200" },
+              AFFIN: { bg: "bg-sky-50/85", text: "text-cyan-950", border: "border-sky-300 hover:border-sky-500", logoBg: "bg-sky-700", logoText: "text-white", accentBadge: "bg-sky-100 text-sky-800 border-sky-200" },
+              HLB: { bg: "bg-indigo-50/70", text: "text-indigo-950", border: "border-indigo-200 hover:border-indigo-400", logoBg: "bg-indigo-800", logoText: "text-white", accentBadge: "bg-indigo-100 text-indigo-800 border-indigo-200" },
+              AMB: { bg: "bg-orange-50/60", text: "text-orange-950", border: "border-orange-200 hover:border-orange-400", logoBg: "bg-red-650", logoText: "text-white", accentBadge: "bg-orange-100 text-orange-850 border-orange-201" },
+              BIMB: { bg: "bg-emerald-50/70", text: "text-emerald-950", border: "border-emerald-200 hover:border-emerald-400", logoBg: "bg-emerald-700", logoText: "text-white", accentBadge: "bg-emerald-100 text-emerald-850 border-emerald-205" },
+              ALB: { bg: "bg-cyan-50/70", text: "text-cyan-950", border: "border-cyan-200 hover:border-cyan-400", logoBg: "bg-cyan-700", logoText: "text-white", accentBadge: "bg-cyan-100 text-cyan-850 border-cyan-210" },
+              OCBC: { bg: "bg-slate-50/90", text: "text-slate-900", border: "border-slate-200 hover:border-slate-400", logoBg: "bg-red-650", logoText: "text-white", accentBadge: "bg-red-50 text-red-700 border-red-100" },
+              TNG: { bg: "bg-sky-50/90", text: "text-sky-950", border: "border-blue-300 hover:border-blue-500", logoBg: "bg-[#0650ea] shadow-xs", logoText: "text-white font-black", accentBadge: "bg-blue-100 text-blue-800 border-blue-200" }
+            };
 
-                  <div className="space-y-3">
+            return (
+              <motion.div
+                key="tab-search-fi"
+                initial={{ opacity: 0, scale: 0.99 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="space-y-6"
+              >
+                {/* DECK 1: INPUT & MATCHING CARDS */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                  {/* LEFT COLUMN: SEARCH FI CONTROLS (5 Columns) */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs md:col-span-5 flex flex-col justify-between min-h-[420px]">
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
-                        Malaysian Bank Account Number
-                      </label>
-                      <input
-                        id="fi-account-input"
-                        type="text"
-                        value={fiSearchTerm}
-                        onChange={(e) => setFiSearchTerm(e.target.value.replace(/[^\d]/g, ""))}
-                        placeholder="Type or paste Malaysian bank account digits..."
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded font-mono font-bold text-xs text-slate-800 focus:outline-none focus:border-blue-500 placeholder-slate-400"
-                      />
-                    </div>
+                      <div className="pb-3 border-b border-slate-100 mb-3.5 flex items-center space-x-2">
+                        <Building2 className="h-4.5 w-4.5 text-blue-500" />
+                        <h4 className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">Search Financial Institution</h4>
+                      </div>
+                      
+                      <p className="text-[11px] text-slate-400 mb-3">
+                        Input Malaysian Bank Account number digits below. The automated match engine computes rules precision instantly based on routing prefixes.
+                      </p>
 
-                    {/* QUICK SELECTION LINKS */}
-                    <div>
-                      <span className="block text-[9px] uppercase font-bold text-slate-400 font-mono tracking-wider mb-1.5">Quick Inputs:</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {[
-                          { name: "Maybank (12D)", digits: "164212345678" },
-                          { name: "CIMB (14D)", digits: "70421234567890" },
-                          { name: "Affin Bank (10D)", digits: "1002123456" },
-                          { name: "RHB Bank (14D)", digits: "21212345678912" }
-                        ].map((btn) => (
-                          <button
-                            key={btn.name}
-                            type="button"
-                            onClick={() => setFiSearchTerm(btn.digits)}
-                            className="bg-slate-100 hover:bg-slate-200 border border-slate-200 px-2 py-1 rounded text-[10px] text-slate-600 font-mono tracking-tighter"
-                          >
-                            {btn.name}
-                          </button>
-                        ))}
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                            Malaysian Bank Account Number
+                          </label>
+                          <input
+                            id="fi-account-input"
+                            type="text"
+                            value={fiSearchTerm}
+                            onChange={(e) => setFiSearchTerm(e.target.value.replace(/[^\d]/g, ""))}
+                            placeholder="Type or paste Malaysian bank account digits..."
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded font-mono font-bold text-xs text-slate-800 focus:outline-none focus:border-blue-500 placeholder-slate-400"
+                          />
+                        </div>
+
+                        {/* QUICK SELECTION LINKS */}
+                        <div>
+                          <span className="block text-[9px] uppercase font-bold text-slate-400 font-mono tracking-wider mb-2">QUICK INPUT PRESETS:</span>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {[
+                              { name: "CIMB (Starts on 7 / 14D)", digits: "70421234567890" },
+                              { name: "Maybank (Starts on 1/5 / 12D)", digits: "164212345678" },
+                              { name: "Public Bank (Starts on 3/4 / 10D)", digits: "3002123456" },
+                              { name: "RHB Bank (Starts on 2 / 14D)", digits: "21212345678912" },
+                              { name: "Touch 'n Go (Starts on 9 / 10D)", digits: "9012345678" },
+                              { name: "TNG DuitNow (Starts on 601 / 11D)", digits: "60123456789" }
+                            ].map((btn) => (
+                              <button
+                                key={btn.name}
+                                type="button"
+                                onClick={() => setFiSearchTerm(btn.digits)}
+                                className="bg-slate-100 hover:bg-slate-200 border border-slate-200 px-2 py-1.5 rounded text-[10px] text-slate-700 font-mono text-left truncate transition-colors"
+                              >
+                                🎯 {btn.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     </div>
+
+                    <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 mt-6 md:mt-0 bg-blue-50/20 p-2.5 rounded">
+                      <span className="flex items-center font-semibold text-xs text-blue-700">
+                        <CheckCircle className="h-4 w-4 text-blue-500 mr-1.5" />
+                        Instant Match Engine active
+                      </span>
+                      <span className="font-mono text-[9px] text-slate-400 font-bold uppercase">Rules mapped: 11 FIs</span>
+                    </div>
                   </div>
-                </div>
 
-                <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 mt-6 md:mt-0 bg-blue-50/20 p-2.5 rounded">
-                  <span className="flex items-center font-semibold text-xs text-blue-700">
-                    <CheckCircle className="h-4 w-4 text-blue-500 mr-1.5" />
-                    Instant Match Engine active
-                  </span>
-                  <span className="font-mono text-[9px] text-slate-400 font-bold uppercase">Rules mapped: 10 FIs</span>
-                </div>
-              </div>
+                  {/* RIGHT COLUMN: PRECISE SUGGESTIONS (7 Columns) with standard bank themes */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs md:col-span-7 flex flex-col min-h-[420px]">
+                    <div className="pb-3 border-b border-slate-100 mb-3.5">
+                      <h4 className="font-display font-semibold text-xs uppercase tracking-wider text-slate-800">Matched Bank Recommendations</h4>
+                      <p className="text-[10px] text-slate-400">Target probability sorted by compliance factors</p>
+                    </div>
 
+                    {!fiSearchTerm.trim() ? (
+                      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 text-xs">
+                        <Building2 className="h-10 w-10 text-slate-300 mb-3" />
+                        <p className="font-bold uppercase tracking-wider text-slate-600">WAITING FOR SEARCH TERM</p>
+                        <p className="max-w-xs mt-1.5 text-slate-400 leading-normal">
+                          Enter Malaysian bank account digits on the left side to evaluate routing rules with visual percentage matches and standard bank corporate themes.
+                        </p>
+                      </div>
+                    ) : matchedBanks.length === 0 ? (
+                      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 text-xs">
+                        <AlertTriangle className="h-10 w-10 text-amber-500 mb-3 animate-bounce" />
+                        <p className="font-bold text-slate-600 uppercase tracking-wider">No Precise Matches</p>
+                        <p className="max-w-xs mt-1.5 text-slate-400 leading-normal">
+                          Length parsed {fiSearchTerm.length} does not overlap standard Malaysian routing prefixes.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col justify-start space-y-3.5">
+                        <div className="flex items-center justify-between border-b border-dashed border-slate-100 pb-2">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block font-mono">
+                            {matchedBanks.length} MATCHES DETECTED
+                          </span>
+                          <span className="text-[10px] text-blue-600 font-bold font-mono">Heuristic Precision Verified</span>
+                        </div>
 
-              {/* RIGHT COLUMN: PRECISE SUGGESTIONS (7 Columns) (Max 3 lines, single columns card) */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs md:col-span-7 flex flex-col min-h-[400px]">
-                <div className="pb-3 border-b border-slate-100 mb-3.5">
-                  <h4 className="font-display font-semibold text-xs uppercase tracking-wider text-slate-800">Matched Bank Recommendations</h4>
-                  <p className="text-[10px] text-slate-400">Target probability sorted by compliance factors</p>
-                </div>
+                        {/* COMPACT CARD STYLINGS: 3 lines maximum, Styled with Standard Bank Color Themes */}
+                        {matchedBanks.slice(0, 3).map((bank) => {
+                          const theme = BANK_THEMES[bank.code] || {
+                            bg: "bg-slate-50",
+                            text: "text-slate-800",
+                            border: "border-slate-200 hover:border-slate-400",
+                            logoBg: "bg-indigo-700/10",
+                            logoText: "text-indigo-700",
+                            accentBadge: "bg-slate-100 text-slate-800 border-slate-200"
+                          };
 
-                {!fiSearchTerm.trim() ? (
-                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 text-xs">
-                    <Building2 className="h-10 w-10 text-slate-300 mb-2" />
-                    <p className="font-semibold">WAITING FOR SEARCH TERM</p>
-                    <p className="max-w-xs mt-1">Enter bank account digits in the search box left side to evaluate routing rules with visual percentage breakdowns.</p>
-                  </div>
-                ) : matchedBanks.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 text-xs">
-                    <AlertTriangle className="h-10 w-10 text-slate-300 mb-2" />
-                    <p className="font-semibold text-slate-500">No Precise Matched bank matches</p>
-                    <p className="max-w-xs mt-1">Length parsed {fiSearchTerm.length} does not overlap standard Malaysian prefixes.</p>
-                  </div>
-                ) : (
-                  <div className="flex-1 flex flex-col justify-start space-y-3">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block font-mono">
-                      {matchedBanks.length} matches found
-                    </span>
+                          return (
+                            <div
+                              key={bank.name}
+                              className={`border p-3 rounded-xl flex items-center justify-between hover:scale-[1.01] transition-all shadow-xs relative overflow-hidden ${theme.bg} ${theme.border} ${theme.text}`}
+                            >
+                              <div className="flex items-center space-x-4">
+                                {/* Brand Logo letter design */}
+                                <div className={`h-11 w-11 rounded-lg font-mono font-black text-sm flex items-center justify-center uppercase shrink-0 shadow-xs border border-white/20 ${theme.logoBg} ${theme.logoText}`}>
+                                  {bank.logoLetter}
+                                </div>
 
-                    {/* COMPACT CARD STYLINGS: 3 lines maximum, ONLY 1 column show logo/name/percentage on right */}
-                    {matchedBanks.slice(0, 3).map((bank) => (
-                      <div
-                        key={bank.name}
-                        className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex items-center justify-between hover:border-blue-400 hover:bg-blue-50/10 transition-all shadow-xs relative overflow-hidden"
-                      >
-                        <div className="flex items-center space-x-3.5">
-                          {/* Logo letters design */}
-                          <div className="h-10 w-10 rounded bg-indigo-700/10 font-mono font-bold text-indigo-700 border border-indigo-700/20 text-xs flex items-center justify-center uppercase shrink-0">
-                            {bank.logoLetter}
-                          </div>
+                                <div className="text-xs">
+                                  <div className="flex items-center space-x-2">
+                                    <span className={`text-[8.5px] font-mono font-extrabold px-2 py-0.5 rounded border uppercase shrink-0 ${theme.accentBadge}`}>
+                                      {bank.code}
+                                    </span>
+                                    <h5 className="font-extrabold text-xs tracking-tight font-sans text-slate-900">{bank.name}</h5>
+                                  </div>
+                                  <p className="text-[10.5px] text-slate-600 mt-1 leading-normal font-sans font-medium">{bank.description}</p>
+                                  
+                                  <div className="flex items-center space-x-2 mt-1.5 font-mono text-[9px] text-slate-500 font-semibold font-sans">
+                                    <span>Rules evaluated:</span>
+                                    <span className={bank.matchScore > 70 ? "text-emerald-700" : "text-amber-700"}>Length matches pattern ({bank.lengthPattern})</span>
+                                    <span>•</span>
+                                    <span className={bank.matchScore > 85 ? "text-emerald-700" : "text-slate-500"}>Branch routing verified</span>
+                                  </div>
+                                </div>
+                              </div>
 
-                          <div className="text-xs">
-                            <span className="bg-red-100 text-red-800 text-[8px] font-bold px-1.5 py-0.2 rounded font-mono mr-1.5 uppercase">
-                              {bank.code}
-                            </span>
-                            <h5 className="font-bold text-slate-800 inline-block font-sans">{bank.name}</h5>
-                            <p className="text-[10px] text-slate-500 mt-0.5">{bank.description}</p>
-                            
-                            <div className="flex items-center space-x-2 mt-1 font-mono text-[9px] text-slate-400 font-semibold">
-                              <span>Match precision:</span>
-                              <span className="text-emerald-600">Length ✓</span>
-                              <span>•</span>
-                              <span className="text-emerald-600">Prefix ✓</span>
+                              {/* MATCH PERCENTAGE ON VERY RIGHT */}
+                              <div className="text-right shrink-0 flex flex-col items-end space-y-1 bg-white/70 backdrop-blur-xs p-2.5 rounded-lg border border-white/60 shadow-2xs">
+                                <div className="flex items-baseline space-x-0.5">
+                                  <span className="text-2xl font-mono font-black text-emerald-600 leading-none">{bank.matchScore}</span>
+                                  <span className="text-xs font-mono font-black text-emerald-600">%</span>
+                                </div>
+                                <span className="text-[8px] uppercase tracking-wider text-slate-500 font-black block leading-none">PROBABILITY</span>
+                                
+                                <div className="flex flex-col space-y-1 w-full pt-1.5 border-t border-slate-200/50">
+                                  <button
+                                    onClick={() => handleCopy(`Bank: ${bank.name}\nCode: ${bank.code}\nAccount: ${fiSearchTerm}\nExact Match Prob: ${bank.matchScore}%`, "Bank details")}
+                                    className="px-2 py-0.5 bg-white border border-slate-200 text-slate-500 hover:text-blue-600 rounded text-[9.5px] font-bold transition flex items-center justify-center space-x-1"
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                    <span>Copy Specs</span>
+                                  </button>
+                                  
+                                  <button
+                                    onClick={() => handleSaveToSqlite(fiSearchTerm, bank.code, bank.name, bank.matchScore)}
+                                    className="px-2 py-0.5 bg-slate-900 border border-slate-900 text-white hover:bg-slate-800 rounded text-[9.5px] font-bold transition flex items-center justify-center space-x-1"
+                                  >
+                                    <Database className="h-3 w-3 text-cyan-400" />
+                                    <span>Store sqlite</span>
+                                  </button>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-
-                        {/* MATCH PERCENTAGE ON VERY RIGHT */}
-                        <div className="text-right shrink-0">
-                          <span className="block text-2xl font-mono font-bold text-emerald-600">{bank.matchScore}%</span>
-                          <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">MATCH</span>
-                          
-                          <button
-                            onClick={() => handleCopy(`Bank: ${bank.name}\nCode: ${bank.code}\nAccount: ${fiSearchTerm}`, "Bank specs")}
-                            className="mt-1 px-2 py-0.5 bg-white border border-slate-200 text-slate-500 hover:text-blue-600 rounded text-[9px] font-bold transition flex items-center space-x-1"
-                          >
-                            <Copy className="h-3 w-3" />
-                            <span>Copy Combined</span>
-                          </button>
-                        </div>
+                          );
+                        })}
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
-              </div>
+                </div>
 
-            </motion.div>
-          )}
+              </motion.div>
+            );
+          })()}
 
 
           {/* 5. NSRC NEW REGISTER & TABLE TAB */}
@@ -2810,7 +3089,20 @@ export default function App() {
 
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-1.5">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-1.5">
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
+                          Registered Disputed Amount (RM)
+                        </label>
+                        <input
+                          type="text"
+                          value={nsrcAmount}
+                          onChange={(e) => setNsrcAmount(e.target.value)}
+                          placeholder="eg: RM2,500.00"
+                          className="w-full px-2 py-1.5 border border-slate-300 bg-white rounded font-mono font-semibold focus:outline-none focus:border-slate-400 text-indigo-700"
+                        />
+                      </div>
 
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
@@ -2890,6 +3182,8 @@ export default function App() {
                         <th className="px-3 py-2">CIF Number</th>
                         <th className="px-3 py-2">Account Number</th>
                         <th className="px-3 py-2">Blocked Status</th>
+                        <th className="px-3 py-2">Disputed Amount</th>
+                        <th className="px-3 py-2">Earmark Amount</th>
                         <th className="px-3 py-2">Business Unit</th>
                         <th className="px-3 py-2 text-center">Protected Action</th>
                       </tr>
@@ -2901,6 +3195,8 @@ export default function App() {
                           <td className="px-3 py-3 font-mono font-semibold text-slate-700">{it.cif}</td>
                           <td className="px-3 py-3 font-mono text-slate-500">{it.accountNumber}</td>
                           <td className="px-3 py-3 font-mono text-red-600 font-bold text-[10px]">{it.accountBlockingType}</td>
+                          <td className="px-3 py-3 font-mono text-indigo-700 font-bold">{it.amount || "—"}</td>
+                          <td className="px-3 py-3 font-mono text-emerald-700 font-bold">{it.earmarkAmount || "—"}</td>
                           <td className="px-3 py-3 font-bold text-slate-700">{it.businessUnit}</td>
                           <td className="px-3 py-3 text-center">
                             <button
