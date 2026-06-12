@@ -1,0 +1,6 @@
+{
+  "name": "OwlFraudster",
+  "description": "Advanced compact risk, fraud, and NSRC mitigation system with automation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
