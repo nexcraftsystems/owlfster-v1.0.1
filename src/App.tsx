@@ -41,14 +41,22 @@ import { INITIAL_CASES, INITIAL_NSRC, MALAYSIAN_BANKS, OFFICER_SCORES, OfficerSc
 export default function App() {
   // Staff accounts & Auth States
   const [staffAccounts, setStaffAccounts] = useState<any[]>(() => {
-    const saved = localStorage.getItem("owl_staff_accounts_v2");
+    const saved = localStorage.getItem("owl_staff_accounts_v4");
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed.some((u: any) => u.psid === "PS101436")) {
+      if (parsed.some((u: any) => u.psid === "PS101435")) {
         return parsed;
       }
     }
     const initial = [
+      {
+        psid: "PS101435",
+        name: "Zaim",
+        role: "Admin",
+        status: "Active",
+        password: "Affin123",
+        mustChangePassword: true,
+      },
       {
         psid: "PS101436",
         name: "Faris",
@@ -82,31 +90,31 @@ export default function App() {
         mustChangePassword: true,
       }
     ];
-    localStorage.setItem("owl_staff_accounts_v2", JSON.stringify(initial));
+    localStorage.setItem("owl_staff_accounts_v4", JSON.stringify(initial));
     return initial;
   });
 
   const [currentUser, setCurrentUser] = useState<any>(() => {
-    const saved = localStorage.getItem("owl_current_user_v2");
+    const saved = localStorage.getItem("owl_current_user_v4");
     return saved ? JSON.parse(saved) : null;
   });
 
   // State variables backboned by standard localStorage
   const [cases, setCases] = useState<FMSCase[]>(() => {
-    const saved = localStorage.getItem("owl_cases_v2");
+    const saved = localStorage.getItem("owl_cases_v4");
     return saved ? JSON.parse(saved) : INITIAL_CASES;
   });
 
   const [nsrcEntries, setNsrcEntries] = useState<NSRCEntry[]>(() => {
-    const saved = localStorage.getItem("owl_nsrc_entries_v2");
+    const saved = localStorage.getItem("owl_nsrc_entries_v4");
     return saved ? JSON.parse(saved) : INITIAL_NSRC;
   });
 
   const [sessionLogs, setSessionLogs] = useState<any[]>(() => {
-    const saved = localStorage.getItem("owl_session_logs_v2");
+    const saved = localStorage.getItem("owl_session_logs_v4");
     if (saved) return JSON.parse(saved);
     const initial: any[] = [];
-    localStorage.setItem("owl_session_logs_v2", JSON.stringify(initial));
+    localStorage.setItem("owl_session_logs_v4", JSON.stringify(initial));
     return initial;
   });
 
@@ -114,26 +122,26 @@ export default function App() {
 
   // Save to persistence
   useEffect(() => {
-    localStorage.setItem("owl_cases_v2", JSON.stringify(cases));
+    localStorage.setItem("owl_cases_v4", JSON.stringify(cases));
   }, [cases]);
 
   useEffect(() => {
-    localStorage.setItem("owl_nsrc_entries_v2", JSON.stringify(nsrcEntries));
+    localStorage.setItem("owl_nsrc_entries_v4", JSON.stringify(nsrcEntries));
   }, [nsrcEntries]);
 
   useEffect(() => {
-    localStorage.setItem("owl_session_logs_v2", JSON.stringify(sessionLogs));
+    localStorage.setItem("owl_session_logs_v4", JSON.stringify(sessionLogs));
   }, [sessionLogs]);
 
   useEffect(() => {
-    localStorage.setItem("owl_staff_accounts_v2", JSON.stringify(staffAccounts));
+    localStorage.setItem("owl_staff_accounts_v4", JSON.stringify(staffAccounts));
   }, [staffAccounts]);
 
   useEffect(() => {
     if (currentUser) {
-      localStorage.setItem("owl_current_user_v2", JSON.stringify(currentUser));
+      localStorage.setItem("owl_current_user_v4", JSON.stringify(currentUser));
     } else {
-      localStorage.removeItem("owl_current_user_v2");
+      localStorage.removeItem("owl_current_user_v4");
     }
   }, [currentUser]);
 
@@ -143,8 +151,8 @@ export default function App() {
 
   // Active officer session resolver
   const currentOfficer = currentUser || {
-    psid: "PS101436",
-    name: "Faris",
+    psid: "PS101435",
+    name: "Zaim",
     role: "Admin"
   };
 
@@ -655,7 +663,7 @@ export default function App() {
     const psidInput = loginPsid.trim().toUpperCase();
     
     // Restriction: Only authorized users can access this system
-    const ALLOWED_PSIDS = ["PS101436", "PS101477", "PS101405", "PS101480"];
+    const ALLOWED_PSIDS = ["PS101435", "PS101436", "PS101477", "PS101405", "PS101480"];
     if (!ALLOWED_PSIDS.includes(psidInput)) {
       setLoginError("Access Denied: This PSID is not authorized to access this system.");
       return;
@@ -770,9 +778,9 @@ export default function App() {
     }
     
     // Restriction during admin additions
-    const ALLOWED_PSIDS = ["PS101436", "PS101477", "PS101405", "PS101480"];
+    const ALLOWED_PSIDS = ["PS101435", "PS101436", "PS101477", "PS101405", "PS101480"];
     if (!ALLOWED_PSIDS.includes(cleanPsid)) {
-      setAdminMessage("Error: Only pre-authorized system compliance officers (Faris, Nabil, Naja, Izzat) are allowed to access this system.");
+      setAdminMessage("Error: Only pre-authorized system compliance officers (Zaim, Faris, Nabil, Naja, Izzat) are allowed to access this system.");
       return;
     }
 
