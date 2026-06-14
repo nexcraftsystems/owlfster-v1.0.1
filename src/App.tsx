@@ -70,6 +70,11 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   console.error('Firestore Error: ', JSON.stringify(errInfo));
 }
 
+function sanitizeDisplayDetails(details: string | undefined | null): string {
+  if (!details) return "";
+  return details.replace(/Cyber@368/gi, "****");
+}
+
 export interface BranchInfo {
   code: string;
   name: string;
@@ -347,7 +352,7 @@ export default function App() {
   });
 
   const [currentUser, setCurrentUser] = useState<any>(() => {
-    // Try sessionStorage first to support multi-tab/user workspace isolation
+    // Strictly use sessionStorage to support true browser-level and tab-level session isolation
     const sessionSaved = sessionStorage.getItem("owl_current_user_v4");
     if (sessionSaved) {
       try {
@@ -358,20 +363,6 @@ export default function App() {
         }
       } catch (e) {
         console.error("Error reading saved sessionStorage user:", e);
-      }
-    }
-    // Fallback to localStorage
-    const saved = localStorage.getItem("owl_current_user_v4");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed) {
-          // Dynamically enforce role on load
-          const role = parsed.psid.toUpperCase() === "PS101435" ? "Admin" : "Staff";
-          return { ...parsed, role };
-        }
-      } catch (e) {
-        console.error("Error reading saved current user:", e);
       }
     }
     return null;
@@ -398,7 +389,7 @@ export default function App() {
         name: "Zaim",
         action: "PASSWORD_CHANGE",
         timestamp: new Date(Date.now() - 3600000 * 24 * 3).toLocaleString(),
-        details: "Password changed from 'Affin123' to 'Cyber@368' successfully (Secured)"
+        details: "Password changed from 'Affin123' to '****' successfully (Secured)"
       },
       {
         id: "log-seed-2",
@@ -461,7 +452,12 @@ export default function App() {
         }
       } else {
         const items: FMSCase[] = [];
-        snapshot.forEach((doc) => items.push(doc.data() as FMSCase));
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          if (doc.id !== "clear_marker") {
+            items.push(data as FMSCase);
+          }
+        });
         items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setCases(items);
       }
@@ -478,7 +474,12 @@ export default function App() {
         }
       } else {
         const items: NSRCEntry[] = [];
-        snapshot.forEach((doc) => items.push(doc.data() as NSRCEntry));
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          if (doc.id !== "clear_marker") {
+            items.push(data as NSRCEntry);
+          }
+        });
         items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setNsrcEntries(items);
       }
@@ -497,7 +498,7 @@ export default function App() {
             name: "Zaim",
             action: "PASSWORD_CHANGE",
             timestamp: new Date(Date.now() - 3600000 * 24 * 3).toLocaleString(),
-            details: "Password changed from 'Affin123' to 'Cyber@368' successfully (Secured)"
+            details: "Password changed from 'Affin123' to '****' successfully (Secured)"
           },
           {
             id: "log-seed-2",
@@ -597,10 +598,8 @@ export default function App() {
   useEffect(() => {
     if (currentUser) {
       sessionStorage.setItem("owl_current_user_v4", JSON.stringify(currentUser));
-      localStorage.setItem("owl_current_user_v4", JSON.stringify(currentUser));
     } else {
       sessionStorage.removeItem("owl_current_user_v4");
-      localStorage.removeItem("owl_current_user_v4");
     }
   }, [currentUser]);
 
@@ -646,6 +645,18 @@ export default function App() {
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffRole, setNewStaffRole] = useState<"Staff" | "Admin">("Staff");
   const [adminMessage, setAdminMessage] = useState("");
+
+  // DB Space & Export Release Admin Panel States
+  const [casesExported, setCasesExported] = useState(false);
+  const [nsrcExported, setNsrcExported] = useState(false);
+  const [receiptGenerated, setReceiptGenerated] = useState(false);
+  const [purgeReceiptCode, setPurgeReceiptCode] = useState("");
+  const [enteredPurgeCode, setEnteredPurgeCode] = useState("");
+  const [acknowledgedBackup_1, setAcknowledgedBackup_1] = useState(false);
+  const [acknowledgedBackup_2, setAcknowledgedBackup_2] = useState(false);
+  const [acknowledgedBackup_3, setAcknowledgedBackup_3] = useState(false);
+  const [purgeStatusMessage, setPurgeStatusMessage] = useState("");
+  const [isPurgingInProgress, setIsPurgingInProgress] = useState(false);
 
   // NSRC Autofill suggestion match state
   const [autofillSuggestion, setAutofillSuggestion] = useState<any | null>(null);
@@ -1466,7 +1477,7 @@ export default function App() {
       name: currentUser.name,
       action: "PASSWORD_CHANGE",
       timestamp: new Date().toLocaleString(),
-      details: `Password changed from '${oldPassword}' to '${newPassword}' successfully (Secured)`
+      details: `Password changed from '${oldPassword}' to '****' successfully (Secured)`
     };
 
     try {
@@ -1662,6 +1673,186 @@ export default function App() {
     } catch (error) {
       console.error("Error bulk restoring profiles:", error);
       alert("Error restoring profiles in Firestore. Please try again.");
+    }
+  };
+
+  const getDatabaseEstimatedStorage = () => {
+    let casesEstBytes = 0;
+    let nsrcEstBytes = 0;
+    let logsEstBytes = 0;
+    let staffEstBytes = 0;
+
+    cases.forEach(item => {
+      casesEstBytes += JSON.stringify(item).length + 32;
+    });
+    nsrcEntries.forEach(item => {
+      nsrcEstBytes += JSON.stringify(item).length + 32;
+    });
+    sessionLogs.forEach(item => {
+      logsEstBytes += JSON.stringify(item).length + 32;
+    });
+    staffAccounts.forEach(item => {
+      staffEstBytes += JSON.stringify(item).length + 32;
+    });
+
+    const totalBytes = casesEstBytes + nsrcEstBytes + logsEstBytes + staffEstBytes;
+    return {
+      casesBytes: casesEstBytes,
+      nsrcBytes: nsrcEstBytes,
+      logsBytes: logsEstBytes,
+      staffBytes: staffEstBytes,
+      totalBytes: totalBytes,
+      casesCount: cases.length,
+      nsrcCount: nsrcEntries.length,
+      logsCount: sessionLogs.length,
+      staffCount: staffAccounts.length
+    };
+  };
+
+  const downloadCSV = (headers: string[], rows: any[][], filename: string) => {
+    const escapeCSVValue = (val: any) => {
+      if (val === null || val === undefined) return '';
+      const str = String(val);
+      if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(escapeCSVValue).join(','))
+    ].join('\r\n');
+
+    // Add Byte Order Mark (BOM) to force Microsoft Excel to interpret file correctly in UTF-8
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${filename}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportCases = () => {
+    const headers = [
+      "Case ID", "CIF", "Disputed Amount (RM)", "Event Type", "Risk Rating", "Channel/Mode", 
+      "Rule ID Mapped", "FMS Status", "Assigned PSID", "Compliance Action", "Resolution State", 
+      "Resolution Remarks", "First Call Time", "First Call Remarks", "Second Call Time", 
+      "Second Call Remarks", "Third Call Time", "Third Call Remarks", "Escalated Team", "Creation Date"
+    ];
+    
+    // Filter out marker in case it somehow leaks to export list
+    const exportableCases = cases.filter(c => c.id !== "clear_marker");
+    
+    const rows = exportableCases.map(c => [
+      c.id, c.cif, c.amount, c.eventType, c.riskScore, c.modeChannel, 
+      c.ruleId, c.fmsStatus, c.assignedOfficer, c.policyAction, c.resolution || "UNRESOLVED", 
+      c.remarks || "", c.firstCallTime || "", c.firstCallRemarks || "", c.secondCallTime || "", 
+      c.secondCallRemarks || "", c.thirdCallTime || "", c.thirdCallRemarks || "", c.escalateTeam || "None", 
+      c.createdAt || ""
+    ]);
+    
+    downloadCSV(headers, rows, `FMS_Cases_GlobalSync_${new Date().toISOString().slice(0, 10)}`);
+    setCasesExported(true);
+  };
+
+  const handleExportNsrc = () => {
+    const headers = [
+      "Report ID", "Link Case ID", "CIF", "Registration/ID No", "Beneficiary Name", "Account Number", 
+      "Block Type Mode", "Corporate segment", "Account Class Type", "Disciplinary Action Taken", 
+      "Report Disputed Amount", "Earmarked Amount", "Earmarking Action", "Staff Narrative Remarks", 
+      "Verification Reason", "Report Timestamp", "Created By PSID"
+    ];
+    
+    // Filter out clear marker
+    const exportableNsrc = nsrcEntries.filter(n => n.id !== "clear_marker");
+    
+    const rows = exportableNsrc.map(n => [
+      n.id, n.caseId, n.cif, n.regNo, n.name, n.accountNumber, 
+      n.accountBlockingType, n.businessUnit, n.accountClassification, n.statusBlockDesc, 
+      n.amount, n.earmarkAmount, n.earmark, n.remarks, 
+      n.reason, n.dateStamp, n.officerPsid || "System Default"
+    ]);
+    
+    downloadCSV(headers, rows, `NSRC_Reports_Ledger_${new Date().toISOString().slice(0, 10)}`);
+    setNsrcExported(true);
+  };
+
+  const handleGeneratePurgeReceipt = () => {
+    const generatedRefCode = `OWL-RELEASE-${Math.floor(100000 + Math.random() * 900000)}`;
+    setPurgeReceiptCode(generatedRefCode);
+    setReceiptGenerated(true);
+    setPurgeStatusMessage("Safety release authorization receipt created successfully. Please check confirmation requirements.");
+  };
+
+  const handleResetWipeDbStorage = async () => {
+    if (!receiptGenerated || enteredPurgeCode !== purgeReceiptCode) {
+      alert("Invalid Clearance: Confirmation security code mismatch, or receipt not yet generated.");
+      return;
+    }
+    if (!acknowledgedBackup_1 || !acknowledgedBackup_2 || !acknowledgedBackup_3) {
+      alert("Verification Pending: All safety checklist items must be certified.");
+      return;
+    }
+
+    setIsPurgingInProgress(true);
+    setPurgeStatusMessage("Decommission in progress... Releasing active Firestore tables...");
+
+    try {
+      const originalCasesCount = cases.filter(c => c.id !== "clear_marker").length;
+      const originalNsrcCount = nsrcEntries.filter(n => n.id !== "clear_marker").length;
+
+      // 1. Establish clear marker in cases table
+      await setDoc(doc(db, "cases", "clear_marker"), { id: "clear_marker", isMarker: true });
+      // Delete all active cases (excluding custom markers)
+      for (const c of cases) {
+        if (c.id !== "clear_marker") {
+          await deleteDoc(doc(db, "cases", c.id));
+        }
+      }
+
+      // 2. Establish clear marker in nsrcEntries table
+      await setDoc(doc(db, "nsrcEntries", "clear_marker"), { id: "clear_marker", isMarker: true });
+      // Delete all active NSRC entries (excluding custom markers)
+      for (const n of nsrcEntries) {
+        if (n.id !== "clear_marker") {
+          await deleteDoc(doc(db, "nsrcEntries", n.id));
+        }
+      }
+
+      // 3. Register real-time purge event log
+      const logId = `log-${Date.now()}`;
+      const purgeLog = {
+        id: logId,
+        psid: currentUser?.psid || "SYSTEM",
+        name: currentUser?.name || "Root Admin",
+        action: "DATABASE_PURGE",
+        timestamp: new Date().toLocaleString(),
+        details: `DATABASE RELEASE OPERATION: Executed by Root Admin ${currentUser?.psid}. Purged ${originalCasesCount} Case records and ${originalNsrcCount} NSRC logs. Storage released back to Spark Capacity limits successfully.`
+      };
+      await setDoc(doc(db, "sessionLogs", logId), purgeLog);
+
+      // Reset safety gate states
+      setEnteredPurgeCode("");
+      setPurgeReceiptCode("");
+      setReceiptGenerated(false);
+      setAcknowledgedBackup_1(false);
+      setAcknowledgedBackup_2(false);
+      setAcknowledgedBackup_3(false);
+      setCasesExported(false);
+      setNsrcExported(false);
+      
+      setPurgeStatusMessage("DATABASE DECOMMISSION SUCCESSFUL. Storage cleared completely!");
+      alert(`Wipe Successful: Purged ${originalCasesCount} cases and ${originalNsrcCount} regulatory block reports successfully. Total memory released to Spark limits!`);
+    } catch (err: any) {
+      console.error(err);
+      setPurgeStatusMessage(`CRITICAL EXCEPTION THROTTLED: ${err.message || err}`);
+      alert(`Wipe Interrupted: Failed to complete storage purging. Inspect network logs.`);
+    } finally {
+      setIsPurgingInProgress(false);
     }
   };
 
@@ -1880,7 +2071,7 @@ export default function App() {
 
   // Evaluate dynamic user authentication and security status
   const liveDBUser = currentUser ? staffAccounts.find(s => s.psid.toUpperCase() === currentUser.psid.toUpperCase()) : null;
-  const enforcementRequired = liveDBUser ? liveDBUser.mustChangePassword : false;
+  const enforcementRequired = false; // Disabled by user request to allow immediate access for all accounts without redirect / lock
 
   // 1. LOGIN SCREEN ENFORCEMENT
   if (!currentUser) {
@@ -1907,6 +2098,7 @@ export default function App() {
             <h1 className="font-sans font-semibold text-xl tracking-tight text-[#1d1d1f]">
               Owl<span className="font-light text-slate-500">Fraudster</span>
             </h1>
+            <p className="text-[10px] text-slate-400 font-mono mt-1">Version 1.0.5</p>
           </div>
           
           {loginError && (
@@ -3603,8 +3795,8 @@ export default function App() {
                 <div id="system-audit-logs" className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
                   <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 mb-2">
                     <div className="flex items-center space-x-2">
-                      <Shield className="h-4.5 w-4.5 text-indigo-500" />
-                      <span className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">SYSTEM SESSIONS CONSOLIDATED LOGIN & LOGOUT REAL-TIME LOGS ({sessionLogs.length})</span>
+                       <Shield className="h-4.5 w-4.5 text-indigo-500" />
+                       <span className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">SYSTEM SESSIONS CONSOLIDATED LOGIN & LOGOUT REAL-TIME LOGS (5 RECENT)</span>
                     </div>
                     <button
                       onClick={async () => {
@@ -3631,7 +3823,7 @@ export default function App() {
                     const displayedLogs = sessionLogs.filter(log => {
                       if (currentUser?.role === "Admin") return true;
                       return log.action !== "PASSWORD_CHANGE" && log.action !== "PASSWORD_RESET" && log.action !== "USER_REGISTER";
-                    });
+                    }).slice(0, 5);
 
                     return displayedLogs.length === 0 ? (
                       <div className="p-8 text-center text-slate-400 text-xs">
@@ -3664,7 +3856,7 @@ export default function App() {
                                     {log.action}
                                   </span>
                                 </td>
-                                <td className="px-3 py-2 text-slate-600 text-right font-sans">{log.details}</td>
+                                <td className="px-3 py-2 text-slate-600 text-right font-sans">{sanitizeDisplayDetails(log.details)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -4519,7 +4711,7 @@ export default function App() {
                                     </span>
                                   </div>
                                   <p className="text-[11px] text-slate-500 font-sans">
-                                    {log.details}
+                                    {sanitizeDisplayDetails(log.details)}
                                   </p>
                                 </div>
                                 <span className="text-[9px] text-slate-400 font-mono whitespace-nowrap shrink-0 mt-0.5">
@@ -4546,6 +4738,286 @@ export default function App() {
                 </div>
 
               </div>
+
+              {/* REAL-TIME FIRESTORE STORAGE & CLEANSE CONTROLLER */}
+              <div className="bg-white border border-[#e8e8ed] rounded-2xl p-6 shadow-xs relative overflow-hidden">
+                <div className="pb-4 border-b border-slate-100 mb-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="bg-[#f5f5f7] text-[#1d1d1f] p-2.5 rounded-xl border border-[#e8e8ed]">
+                      <Database className="h-5 w-5 text-slate-800" />
+                    </div>
+                    <div>
+                      <h3 className="font-sans font-bold text-base text-slate-900">
+                        Real-time Database Storage Analytics & Purge Control
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Track live memory footprint limits against Firebase Spark Quotas, execute Excel backups, and securely de-register data models.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[9px] bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-0.5 rounded-full font-mono uppercase font-bold tracking-wider">
+                    Firebase Spark Core (V4)
+                  </span>
+                </div>
+
+                {(() => {
+                  const dbMetric = getDatabaseEstimatedStorage();
+                  const sparkLimitBytes = 1073741824; // 1 GiB
+                  const usedPct = (dbMetric.totalBytes / sparkLimitBytes) * 100;
+                  
+                  const formatSize = (bytes: number) => {
+                    if (bytes < 1024) return `${bytes} B`;
+                    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KiB`;
+                    return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+                  };
+
+                  return (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      
+                      {/* SUB-PANEL 1: CAPACTIY ANALYZER */}
+                      <div className="space-y-4 lg:border-r lg:border-slate-100 lg:pr-6">
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-sans">DATABASE TOTAL SIZE CAPACITY</span>
+                            <span className="text-[10px] font-bold text-[#1d1d1f] font-mono">{formatSize(dbMetric.totalBytes)} / 1.00 GiB</span>
+                          </div>
+                          
+                          {/* CAPACITY BAR */}
+                          <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden border border-slate-250">
+                            <div 
+                              className="bg-[#0071e3] h-full rounded-full transition-all duration-500" 
+                              style={{ width: `${Math.max(1.5, Math.min(100, usedPct * 250000))}%` }} // Adjusted visually for tiny bytes
+                            />
+                          </div>
+                          <div className="flex items-center justify-between mt-1 text-[9px] text-slate-400 font-mono">
+                            <span>0.00%</span>
+                            <span className="text-[#0071e3] font-bold">Used: {usedPct.toFixed(6)}% of capacity</span>
+                            <span>100.00%</span>
+                          </div>
+                        </div>
+
+                        {/* COLLECTIONS GRAPH BREAKDOWN */}
+                        <div className="space-y-2 mt-4 bg-[#f5f5f7] border border-[#e8e8ed] rounded-xl p-3">
+                          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block font-sans mb-1.5">Collection Segment Quotas</span>
+                          
+                          <div className="space-y-2 text-[11px] font-sans">
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-600 flex items-center"><span className="h-1.5 w-1.5 bg-blue-500 rounded-full mr-2" />Cases Global Sync</span>
+                              <span className="font-mono text-slate-800 font-bold">{dbMetric.casesCount} docs ({formatSize(dbMetric.casesBytes)})</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-600 flex items-center"><span className="h-1.5 w-1.5 bg-indigo-500 rounded-full mr-2" />NSRC report ledger</span>
+                              <span className="font-mono text-slate-800 font-bold">{dbMetric.nsrcCount} docs ({formatSize(dbMetric.nsrcBytes)})</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-600 flex items-center"><span className="h-1.5 w-1.5 bg-amber-500 rounded-full mr-2" />Audit session trails</span>
+                              <span className="font-mono text-slate-800 font-bold">{dbMetric.logsCount} docs ({formatSize(dbMetric.logsBytes)})</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-600 flex items-center"><span className="h-1.5 w-1.5 bg-slate-500 rounded-full mr-2" />Corporate accounts</span>
+                              <span className="font-mono text-slate-800 font-bold">{dbMetric.staffCount} docs ({formatSize(dbMetric.staffBytes)})</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-[10px] text-slate-500 bg-slate-50 border border-slate-200/50 rounded-lg p-2.5 font-sans leading-relaxed">
+                          ⚡ <strong>Firebase Spark Plan Limitations:</strong> Real-time limits enforce max 1 GiB total storage. Daily rates: 50K Reads, 20K Writes, 20K Deletes free. Exceeding quotes triggers temporary lockout.
+                        </div>
+                      </div>
+
+                      {/* SUB-PANEL 2: ARCHIVAL EXPORT ENGINE */}
+                      <div className="space-y-4 lg:border-r lg:border-slate-100 lg:pr-6">
+                        <div className="space-y-1">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Excel Spreadsheet Archival Engine</span>
+                          <p className="text-[11px] text-slate-500 leading-normal font-sans">
+                            Generate offline-synchronized compliance databases formatted in native UTF-8 CSV layouts prior to executing database purge routines.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2.5">
+                          {/* EXPORT BUTTON 1 */}
+                          <button
+                            onClick={handleExportCases}
+                            className={`w-full border p-3 rounded-xl text-xs transition flex items-center justify-between cursor-pointer font-sans ${
+                              casesExported 
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-800 font-bold" 
+                                : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold"
+                            }`}
+                          >
+                            <div className="flex items-center space-x-2">
+                              <FileSpreadsheet className={`h-4.5 w-4.5 ${casesExported ? "text-emerald-600" : "text-slate-500"}`} />
+                              <span className="text-left font-sans">Export Cases Database ({dbMetric.casesCount} Records)</span>
+                            </div>
+                            {casesExported ? (
+                              <span className="bg-emerald-600 text-white rounded-full p-0.5"><Check className="h-3 w-3" /></span>
+                            ) : (
+                              <Download className="h-4 w-4 text-slate-400" />
+                            )}
+                          </button>
+
+                          {/* EXPORT BUTTON 2 */}
+                          <button
+                            onClick={handleExportNsrc}
+                            className={`w-full border p-3 rounded-xl text-xs transition flex items-center justify-between cursor-pointer font-sans ${
+                              nsrcExported 
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-800 font-bold" 
+                                : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold"
+                            }`}
+                          >
+                            <div className="flex items-center space-x-2">
+                              <FileSpreadsheet className={`h-4.5 w-4.5 ${nsrcExported ? "text-emerald-600" : "text-slate-500"}`} />
+                              <span className="text-left font-sans">Export NSRC Reports Ledger ({dbMetric.nsrcCount} Records)</span>
+                            </div>
+                            {nsrcExported ? (
+                              <span className="bg-emerald-600 text-white rounded-full p-0.5"><Check className="h-3 w-3" /></span>
+                            ) : (
+                              <Download className="h-4 w-4 text-slate-400" />
+                            )}
+                          </button>
+
+                          <div className="bg-slate-55 border border-slate-200 rounded-xl p-3 text-[10.5px] text-slate-500 leading-relaxed font-sans">
+                            <h5 className="font-bold text-slate-700 uppercase tracking-wider text-[9px] mb-0.5">Spreadsheet Compatibility Note</h5>
+                            Spreadsheets are encoded with UTF-8 byte order marker elements (BOM), ensuring fully compatible cell render within Microsoft Excel, Google Sheets, or LibreOffice.
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* SUB-PANEL 3: WIPE & PURGE CONTROL */}
+                      <div className="space-y-4">
+                        <div className="space-y-1">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Storage Decommission Control</span>
+                          <p className="text-[11px] text-slate-500 leading-normal font-sans">
+                            Deregister active compliance tables, purging real-time Firestore sync models to reclaim spark storage usage instantly.
+                          </p>
+                        </div>
+
+                        {purgeStatusMessage && (
+                          <div className="bg-amber-50 text-amber-900 border border-amber-200 p-2 text-center rounded-xl text-[10px] uppercase tracking-normal font-bold font-sans">
+                            {purgeStatusMessage}
+                          </div>
+                        )}
+
+                        {!receiptGenerated ? (
+                          <button
+                            onClick={handleGeneratePurgeReceipt}
+                            className="w-full bg-[#1d1d1f] hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl text-xs uppercase tracking-wider transition cursor-pointer flex items-center justify-center space-x-1.5 shadow-3xs"
+                          >
+                            <Activity className="h-4 w-4 text-[#0071e3]" />
+                            <span>1. Generate Decommission Receipt</span>
+                          </button>
+                        ) : (
+                          <div className="space-y-3 font-sans">
+                            
+                            {/* PROFESSIONAL PAPER SLIP RECEIPT VOUCHER */}
+                            <div className="bg-[#fcfcfc] border-2 border-dashed border-slate-200 rounded-xl p-3 font-sans relative overflow-hidden shadow-3xs">
+                              <div className="text-center pb-2 border-b border-[#e8e8ed] mb-2.5">
+                                <span className="text-[10px] font-bold tracking-widest text-[#1d1d1f] uppercase font-sans">PURGE DECOMMISSION AUTHORIZATION</span>
+                                <p className="text-[8px] font-mono text-slate-400 mt-0.5">SYSTEM CLEARANCE RECEIPT</p>
+                              </div>
+                              <div className="space-y-1 text-[9.5px] font-mono text-slate-600">
+                                <div className="flex justify-between">
+                                  <span>RECEIPT REF:</span>
+                                  <span className="font-bold text-[#1d1d1f]">{purgeReceiptCode}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>OPERATOR IN-CHARGE:</span>
+                                  <span className="uppercase">{currentUser?.name} ({currentUser?.psid})</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>DATETIME EST:</span>
+                                  <span>{new Date().toLocaleTimeString()} {new Date().toLocaleDateString()}</span>
+                                </div>
+                                <div className="flex justify-between text-red-600 font-bold text-[10px]">
+                                  <span>PURGE MODEL:</span>
+                                  <span>{dbMetric.casesCount} CASES / {dbMetric.nsrcCount} NSRC</span>
+                                </div>
+                                <div className="flex justify-between text-emerald-600">
+                                  <span>STATUS STATE:</span>
+                                  <span className="font-bold uppercase animate-pulse">Awaiting Certification</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* BACKUP SAFETY CHECKLIST */}
+                            <div className="space-y-1.5 bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-[10px] text-slate-600">
+                              <label className="flex items-start space-x-1.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 accent-[#0071e3]"
+                                  checked={acknowledgedBackup_1}
+                                  onChange={(e) => setAcknowledgedBackup_1(e.target.checked)}
+                                />
+                                <span>I confirm that all FMS Sync cases have been backed up in local Excel spreadsheet.</span>
+                              </label>
+                              <label className="flex items-start space-x-1.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 accent-[#0071e3]"
+                                  checked={acknowledgedBackup_2}
+                                  onChange={(e) => setAcknowledgedBackup_2(e.target.checked)}
+                                />
+                                <span>I confirm that all NSRC reports are downloaded successfully.</span>
+                              </label>
+                              <label className="flex items-start space-x-1.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 accent-[#0071e3]"
+                                  checked={acknowledgedBackup_3}
+                                  onChange={(e) => setAcknowledgedBackup_3(e.target.checked)}
+                                />
+                                <span className="font-bold text-red-600">I acknowledge this operation wipes database storage and is irreversible.</span>
+                              </label>
+                            </div>
+
+                            {/* RECEIPT CONFIRMATION INPUT CODE GAUGE */}
+                            <div className="space-y-1">
+                              <label className="block text-[9px] uppercase tracking-wider font-bold text-slate-400">Validate Clearance Code</label>
+                              <input 
+                                type="text"
+                                value={enteredPurgeCode}
+                                onChange={(e) => setEnteredPurgeCode(e.target.value)}
+                                placeholder={`Type or copy: "${purgeReceiptCode}"`}
+                                className="w-full bg-[#f5f5f7] border border-red-200 rounded-lg px-2.5 py-1.5 text-xs text-red-850 placeholder-slate-400 font-mono text-center focus:outline-none focus:border-red-500"
+                              />
+                            </div>
+
+                            {/* EXECUTE BUTTON */}
+                            <button
+                              onClick={handleResetWipeDbStorage}
+                              disabled={isPurgingInProgress || enteredPurgeCode !== purgeReceiptCode || !acknowledgedBackup_1 || !acknowledgedBackup_2 || !acknowledgedBackup_3}
+                              className={`w-full font-sans font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition duration-200 inline-flex items-center justify-center space-x-2 shadow-sm ${
+                                enteredPurgeCode === purgeReceiptCode && acknowledgedBackup_1 && acknowledgedBackup_2 && acknowledgedBackup_3
+                                  ? "bg-red-650 hover:bg-red-700 text-white cursor-pointer active:scale-98 shadow-red-200"
+                                  : "bg-slate-200 text-slate-450 cursor-not-allowed"
+                              }`}
+                            >
+                              <Trash2 className="h-4.5 w-4.5" />
+                              <span>{isPurgingInProgress ? "Wiping Cluster..." : "Wipe Database Cluster"}</span>
+                            </button>
+                            
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReceiptGenerated(false);
+                                setPurgeReceiptCode("");
+                                setEnteredPurgeCode("");
+                              }}
+                              className="w-full text-center text-slate-400 hover:text-slate-600 text-[10px] uppercase font-bold tracking-wider pt-0.5 cursor-pointer block"
+                            >
+                              Cancel Purge Release
+                            </button>
+
+                          </div>
+                        )}
+
+                      </div>
+
+                    </div>
+                  );
+                })()}
+
+              </div>
+
             </motion.div>
           )}
 
