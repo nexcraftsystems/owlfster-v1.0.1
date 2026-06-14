@@ -31,7 +31,8 @@ import {
   ArrowRight,
   Info,
   UserPlus,
-  Terminal
+  Terminal,
+  Folder
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { FMSCase, NSRCEntry, BankFI } from "./types";
@@ -43,20 +44,15 @@ export default function App() {
   // Staff accounts & Auth States
   const [staffAccounts, setStaffAccounts] = useState<any[]>(() => {
     const saved = localStorage.getItem("owl_staff_accounts_v4");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed.some((u: any) => u.psid === "PS101435")) {
-        return parsed;
-      }
-    }
-    const initial = [
+    
+    const defaults = [
       {
         psid: "PS101435",
         name: "Zaim",
         role: "Admin",
         status: "Active",
-        password: "Affin123",
-        mustChangePassword: true,
+        password: "Cyber@368",
+        mustChangePassword: false,
       },
       {
         psid: "PS101436",
@@ -91,8 +87,36 @@ export default function App() {
         mustChangePassword: true,
       }
     ];
-    localStorage.setItem("owl_staff_accounts_v4", JSON.stringify(initial));
-    return initial;
+
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Verify that Zaim has Cyber@368. If not, update it to align with the prompt
+          const updated = parsed.map((acc: any) => {
+            if (acc.psid === "PS101435" && acc.password === "Affin123") {
+              return { ...acc, password: "Cyber@368", mustChangePassword: false };
+            }
+            return acc;
+          });
+          
+          // Ensure all other required accounts are present
+          defaults.forEach(def => {
+            if (!updated.some((u: any) => u.psid.toUpperCase() === def.psid.toUpperCase())) {
+              updated.push(def);
+            }
+          });
+          
+          localStorage.setItem("owl_staff_accounts_v4", JSON.stringify(updated));
+          return updated;
+        }
+      } catch (e) {
+        console.error("Error reading saved staff accounts:", e);
+      }
+    }
+
+    localStorage.setItem("owl_staff_accounts_v4", JSON.stringify(defaults));
+    return defaults;
   });
 
   const [currentUser, setCurrentUser] = useState<any>(() => {
@@ -114,7 +138,24 @@ export default function App() {
   const [sessionLogs, setSessionLogs] = useState<any[]>(() => {
     const saved = localStorage.getItem("owl_session_logs_v4");
     if (saved) return JSON.parse(saved);
-    const initial: any[] = [];
+    const initial: any[] = [
+      {
+        id: "log-seed-1",
+        psid: "PS101435",
+        name: "Zaim",
+        action: "PASSWORD_CHANGE",
+        timestamp: new Date(Date.now() - 3600000 * 24 * 3).toLocaleString(),
+        details: "Password changed from 'Affin123' to 'Cyber@368' successfully (Secured)"
+      },
+      {
+        id: "log-seed-2",
+        psid: "PS101435",
+        name: "Zaim",
+        action: "LOGIN",
+        timestamp: new Date(Date.now() - 3600000 * 24 * 3 + 60000).toLocaleString(),
+        details: "Session Authenticated (Role: Admin)"
+      }
+    ];
     localStorage.setItem("owl_session_logs_v4", JSON.stringify(initial));
     return initial;
   });
@@ -148,7 +189,17 @@ export default function App() {
 
   // Global search & tools
   const [globalSearchCif, setGlobalSearchCif] = useState("");
+  const [dbSearchCif, setDbSearchCif] = useState("");
+  const [dbFilterPsid, setDbFilterPsid] = useState("ALL");
   const [copiedText, setCopiedText] = useState<string | null>(null);
+
+  // Excel Export Destination & Location prompt state
+  const [excelExportPending, setExcelExportPending] = useState<{
+    type: "NSRC" | "FMS";
+    data: any;
+    defaultFilename: string;
+    customFilename: string;
+  } | null>(null);
 
   // Active officer session resolver
   const currentOfficer = currentUser || {
@@ -161,6 +212,16 @@ export default function App() {
   const [loginPsid, setLoginPsid] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+
+  // Automatically pre-fill memorized passwords when entering PSID
+  useEffect(() => {
+    const psidInput = loginPsid.trim().toUpperCase();
+    if (!psidInput) return;
+    const matched = staffAccounts.find(s => s.psid.toUpperCase() === psidInput);
+    if (matched) {
+      setLoginPassword(matched.password);
+    }
+  }, [loginPsid, staffAccounts]);
 
   // Change Password State
   const [oldPassword, setOldPassword] = useState("");
@@ -569,7 +630,7 @@ export default function App() {
       const baseScore = 15;
 
       // Check standard account lengths in Malaysia
-      if (bank.code === "CIMB" && len === 14) isLengthMatch = true;
+      if (bank.code === "CIMB" && (len === 10 || len === 14)) isLengthMatch = true;
       if (bank.code === "OCBC" && len === 10) isLengthMatch = true;
       if (bank.code === "BAY" && len === 12) isLengthMatch = true; // Maybank
       if (bank.code === "PBB" && len === 10) isLengthMatch = true; // Public Bank
@@ -724,6 +785,7 @@ export default function App() {
 
 
   // --- 3. NSRC INTEGRATION STATES ---
+  const [nsrcCaseId, setNsrcCaseId] = useState("");
   const [nsrcAccNum, setNsrcAccNum] = useState("");
   const [nsrcCif, setNsrcCif] = useState("");
   const [nsrcRegNo, setNsrcRegNo] = useState("");
@@ -776,6 +838,7 @@ export default function App() {
 
     const newNSRC: NSRCEntry = {
       id: "nsrc-" + Date.now(),
+      caseId: nsrcCaseId.trim() || ("NSRC" + Math.floor(100000 + Math.random() * 900000)),
       cif: nsrcCif,
       regNo: nsrcRegNo || "20260109658",
       name: nsrcName.toUpperCase(),
@@ -797,6 +860,7 @@ export default function App() {
     alert("NSRC Report saved in localized operational database.");
     
     // reset NSRC inputs
+    setNsrcCaseId("");
     setNsrcAccNum("");
     setNsrcCif("");
     setNsrcRegNo("");
@@ -960,6 +1024,17 @@ export default function App() {
     
     setStaffAccounts(updatedStaff);
     
+    // Log real-time PASSWORD_CHANGE event
+    const passChangeLog = {
+      id: "log-" + Date.now(),
+      psid: currentUser.psid,
+      name: currentUser.name,
+      action: "PASSWORD_CHANGE",
+      timestamp: new Date().toLocaleString(),
+      details: `Password changed from '${oldPassword}' to '${newPassword}' successfully (Secured)`
+    };
+    setSessionLogs(prev => [passChangeLog, ...prev]);
+    
     const updatedUser = {
       ...currentUser,
       password: newPassword,
@@ -1043,6 +1118,17 @@ export default function App() {
     });
     setStaffAccounts(updated);
     
+    // Log PASSWORD_RESET event
+    const resetLog = {
+      id: "log-" + Date.now(),
+      psid: currentUser ? currentUser.psid : "ADMIN",
+      name: currentUser ? currentUser.name : "System",
+      action: "PASSWORD_RESET",
+      timestamp: new Date().toLocaleString(),
+      details: `Administrator reset password for officer ${psid} to 'Affin123' (First Change Required)`
+    };
+    setSessionLogs(prev => [resetLog, ...prev]);
+    
     if (currentUser && currentUser.psid === psid) {
       setCurrentUser({
         ...currentUser,
@@ -1078,13 +1164,19 @@ export default function App() {
     if (e) e.preventDefault();
     if (exportPassword === "Affin123") {
       if (!nsrcToExport) return;
-      const res = await downloadProtectedNSRCExcel(nsrcToExport);
-      if (res.success) {
-        setNsrcToExport(null);
-        alert(`Success: Secure NSRC file decrypted and exported successfully as "${res.filename}"!`);
-      } else {
-        setPasswordModalError("Error generating workbook compilation.");
-      }
+      
+      const defaultFilename = `NSRC_${nsrcToExport.name.trim().replace(/[^a-zA-Z0-9_\-\s]/g, "")}_(${nsrcToExport.cif.trim()}).xlsx`;
+      
+      // Close decryption password sheet
+      setNsrcToExport(null);
+      
+      // Open our location destination verification modal!
+      setExcelExportPending({
+        type: "NSRC",
+        data: nsrcToExport,
+        defaultFilename,
+        customFilename: defaultFilename
+      });
     } else {
       setPasswordModalError("Access Denied: Incorrect password code.");
     }
@@ -1092,6 +1184,32 @@ export default function App() {
 
   const handleExportNSRCExcel = (entry: NSRCEntry) => {
     triggerNSRCExport(entry);
+  };
+
+  const handleConfirmExcelExport = async () => {
+    if (!excelExportPending) return;
+    const { type, data, customFilename } = excelExportPending;
+    
+    // Clear pending state
+    setExcelExportPending(null);
+
+    if (type === "NSRC") {
+      const { downloadProtectedNSRCExcel } = await import("./excelExport");
+      const res = await downloadProtectedNSRCExcel(data, customFilename);
+      if (res.success) {
+        alert(`Success: Secure NSRC file decrypted and exported successfully as "${res.filename}"!`);
+      } else if (!res.cancelled) {
+        alert("Error generating workbook compilation.");
+      }
+    } else {
+      const { downloadFMSDatabaseExcel } = await import("./excelExport");
+      const res = await downloadFMSDatabaseExcel(data, customFilename);
+      if (res.success) {
+        alert(`Success: FMS Database exported successfully as "${res.filename}"!`);
+      } else if (!res.cancelled) {
+        alert("Error exporting FMS cases.");
+      }
+    }
   };
 
 
@@ -1103,13 +1221,36 @@ export default function App() {
 
   // Filter cases & NSRC by CIF search
   const filteredCases = cases.filter(c => {
-    if (!globalSearchCif) return true;
-    return c.cif.includes(globalSearchCif) || c.ruleId.toLowerCase().includes(globalSearchCif.toLowerCase());
+    // 1. CIF or Rule search
+    let cifMatch = true;
+    if (dbSearchCif) {
+      cifMatch = c.cif.includes(dbSearchCif) || c.ruleId.toLowerCase().includes(dbSearchCif.toLowerCase());
+    } else if (globalSearchCif) {
+      cifMatch = c.cif.includes(globalSearchCif) || c.ruleId.toLowerCase().includes(globalSearchCif.toLowerCase());
+    }
+
+    // 2. PSID Filter
+    let psidMatch = true;
+    if (dbFilterPsid !== "ALL") {
+      psidMatch = c.assignedOfficer === dbFilterPsid;
+    }
+
+    return cifMatch && psidMatch;
   });
 
   const filteredNSRC = nsrcEntries.filter(n => {
-    if (!globalSearchCif) return true;
-    return n.cif.includes(globalSearchCif) || n.accountNumber.includes(globalSearchCif) || n.name.toLowerCase().includes(globalSearchCif.toLowerCase());
+    let cifMatch = true;
+    if (dbSearchCif) {
+      cifMatch = n.cif.includes(dbSearchCif) || 
+                 n.accountNumber.includes(dbSearchCif) || 
+                 n.name.toLowerCase().includes(dbSearchCif.toLowerCase()) ||
+                 (n.caseId && n.caseId.toLowerCase().includes(dbSearchCif.toLowerCase()));
+    } else if (globalSearchCif) {
+      cifMatch = n.cif.includes(globalSearchCif) || 
+                 n.accountNumber.includes(globalSearchCif) || 
+                 n.name.toLowerCase().includes(globalSearchCif.toLowerCase());
+    }
+    return cifMatch;
   });
 
   // Dynamic conditional formatting helpers for Call Verification Area
@@ -1225,7 +1366,6 @@ export default function App() {
             <h1 className="font-sans font-semibold text-xl tracking-tight text-[#1d1d1f]">
               Owl<span className="font-light text-slate-500">Fraudster</span>
             </h1>
-            <p className="text-[10px] uppercase font-mono tracking-widest text-slate-400 mt-1 font-semibold">Risk Ingestion Framework</p>
           </div>
           
           {loginError && (
@@ -1246,6 +1386,22 @@ export default function App() {
                 placeholder="e.g. PS101436"
                 className="w-full bg-[#f5f5f7] border border-[#e8e8ed] rounded-lg px-3 py-2 text-xs text-[#1d1d1f] placeholder-slate-400 focus:outline-none focus:border-[#0071e3] focus:ring-4 focus:ring-blue-500/10 transition-all font-mono"
               />
+              <div className="flex flex-wrap gap-1 mt-2">
+                {["PS101435", "PS101436", "PS101477", "PS101405", "PS101480"].map((p) => (
+                  <button
+                    type="button"
+                    key={p}
+                    onClick={() => setLoginPsid(p)}
+                    className={`text-[9px] px-2 py-0.5 rounded border font-mono font-bold transition-all ${
+                      loginPsid.trim().toUpperCase() === p 
+                        ? "bg-slate-900 border-slate-900 text-white" 
+                        : "bg-[#f5f5f7] border-slate-200 text-slate-500 hover:bg-slate-100"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
             </div>
             
             <div>
@@ -1381,7 +1537,6 @@ export default function App() {
               <span className="font-sans font-bold text-base tracking-tight text-[#1d1d1f]">Owl</span>
               <span className="font-sans font-light text-base tracking-tight text-slate-500">Fraudster</span>
             </div>
-            <span className="hidden sm:inline-block text-[9px] uppercase tracking-widest text-slate-400 font-semibold font-sans">Risk Ingestion Framework</span>
           </div>
         </div>
 
@@ -1585,18 +1740,37 @@ export default function App() {
                   
                   {/* Real-time calculated Sharp SVG Line Graph */}
                   {(() => {
-                    const chartData = [
-                      { date: "Jun 5", count: 3, val: 54000 },
-                      { date: "Jun 6", count: 1, val: 12000 },
-                      { date: "Jun 7", count: 4, val: 84000 },
-                      { date: "Jun 8", count: 2, val: 40000 },
-                      { date: "Jun 9", count: 8, val: 130000 },
-                      { date: "Jun 10", count: 5, val: 95000 },
-                      { date: "Jun 11", count: 9, val: 198000 },
-                      { date: "Jun 12", count: cases.length, val: totalFinancialValue }
-                    ];
+                    const dateMap: { [date: string]: { count: number, val: number, time: number } } = {};
+                    cases.forEach(c => {
+                      const caseDate = c.caseCreatedTime ? new Date(c.caseCreatedTime.split(" ")[0]) : new Date(c.createdAt || Date.now());
+                      const label = caseDate.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                      if (!dateMap[label]) {
+                        dateMap[label] = { count: 0, val: 0, time: caseDate.getTime() };
+                      }
+                      dateMap[label].count += 1;
+                      dateMap[label].val += Number(c.amount || 0);
+                    });
 
-                    const maxVal = Math.max(...chartData.map(d => d.val), 200000);
+                    const chartData = Object.keys(dateMap).map(k => ({
+                      date: k,
+                      count: dateMap[k].count,
+                      val: dateMap[k].val,
+                      time: dateMap[k].time
+                    })).sort((a, b) => a.time - b.time);
+
+                    if (chartData.length < 2) {
+                      return (
+                        <div className="mt-4 flex flex-col items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl h-[160px] p-6 text-center">
+                          <TrendingUp className="h-7 w-7 text-slate-350 mb-2 animate-pulse" />
+                          <span className="text-xs font-bold text-slate-700 font-sans">Trendline Graph Inactive</span>
+                          <p className="text-[10px] text-slate-400 mt-1 max-w-sm font-sans leading-relaxed">
+                            Trend visualization requires a <strong>minimum of 2 days of data collections</strong>. Currently tracking: <span className="bg-slate-200 text-slate-800 font-mono px-1.5 py-0.2 rounded font-bold">{chartData.length} unique day(s)</span>. Add more historical cases to unlock!
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    const maxVal = Math.max(...chartData.map(d => d.val), 50000);
                     const width = 600;
                     const height = 150;
                     const padX = 40;
@@ -1621,8 +1795,8 @@ export default function App() {
                           <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full animate-fade-in" preserveAspectRatio="none">
                             <defs>
                               <linearGradient id="sharp-grad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#0071e3" stopOpacity="0.18" />
-                                <stop offset="100%" stopColor="#0071e3" stopOpacity="0.01" />
+                                <stop offset="0%" stopColor="#0071e3" stopOpacity="0.18" stopID="grad-stop-1" />
+                                <stop offset="100%" stopColor="#0071e3" stopOpacity="0.01" stopID="grad-stop-2" />
                               </linearGradient>
                             </defs>
 
@@ -1813,23 +1987,35 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {OFFICER_SCORES.map((score) => {
-                        const isCurrent = score.psid === currentOfficer.psid;
+                      {staffAccounts.map((officer) => {
+                        const isCurrent = officer.psid === currentOfficer.psid;
+                        const scoreCases = cases.filter(c => c.assignedOfficer === officer.psid);
+                        
+                        const confirmFraud = scoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("confirm") && c.resolution.toLowerCase().includes("fraud")).length;
+                        const suspectedFraud = scoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("suspect")).length;
+                        const confirmGenuine = scoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("confirm") && c.resolution.toLowerCase().includes("genuine")).length;
+                        const assumeGenuine = scoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("assume") && c.resolution.toLowerCase().includes("genuine")).length;
+                        
+                        const contacted = scoreCases.filter(c => c.callResponse && (c.callResponse.toLowerCase().includes("contacted") || c.callResponse.toLowerCase().includes("close screen"))).length;
+                        const noContact = scoreCases.filter(c => c.callResponse && c.callResponse.toLowerCase().includes("unable")).length;
+                        const closeManual = scoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("manual")).length;
+                        const totalWorkload = scoreCases.length;
+
                         return (
-                          <tr key={score.psid} className={`hover:bg-slate-50 transition-colors ${isCurrent ? "bg-amber-50/40" : ""}`}>
+                          <tr key={officer.psid} className={`hover:bg-slate-50 transition-colors ${isCurrent ? "bg-amber-50/40" : ""}`}>
                             <td className="px-3 py-2.5 font-bold text-slate-800 flex items-center space-x-1.5">
                               {isCurrent && <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>}
-                              <span>{score.psid}</span>
-                              <span className="text-[10px] text-slate-400 font-normal">({score.name})</span>
+                              <span>{officer.psid}</span>
+                              <span className="text-[10px] text-slate-400 font-normal">({officer.name})</span>
                             </td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-red-600 font-mono">{score.confirmFraud}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-amber-600 font-mono">{score.suspectedFraud}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-green-600 font-mono">{score.confirmGenuine}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-blue-600 font-mono">{score.assumeGenuine}</td>
-                            <td className="px-3 py-2.5 text-center font-bold font-mono">{score.totalWorkload}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-indigo-600 font-mono">{score.contacted}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-slate-500 font-mono">{score.noContact}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-slate-700 font-mono">{score.closeManual}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-red-600 font-mono">{confirmFraud}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-amber-600 font-mono">{suspectedFraud}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-green-600 font-mono">{confirmGenuine}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-blue-600 font-mono">{assumeGenuine}</td>
+                            <td className="px-3 py-2.5 text-center font-bold font-mono">{totalWorkload}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-indigo-600 font-mono">{contacted}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-slate-500 font-mono">{noContact}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-slate-705 font-mono">{closeManual}</td>
                           </tr>
                         );
                       })}
@@ -2390,36 +2576,61 @@ export default function App() {
               className="space-y-4"
             >
               {/* UPPER SUB ACTION SHEETS */}
-              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <h4 className="font-display font-semibold text-xs uppercase tracking-wider text-slate-800">Operational Database Registry</h4>
-                  <p className="text-[10px] text-slate-400">Chronological list of ingested FMS Cases and secure NSRC records</p>
+                  <p className="text-[10px] text-slate-400">Chronological list of ingested FMS Cases and secure NSRC records (Immutable 1-Year Retention Policy Active)</p>
                 </div>
 
-                <div className="flex space-x-1.5">
-                  <button 
-                    onClick={() => {
-                      if (confirm("Reset operational DB back to standard initial seeds?")) {
-                        setCases(INITIAL_CASES);
-                        setNsrcEntries(INITIAL_NSRC);
-                      }
-                    }}
-                    className="px-3 py-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded text-xs text-slate-600 font-bold transition flex items-center space-x-1"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    <span>Re-Sync Seeds</span>
-                  </button>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1 md:justify-end">
+                  {/* Search by CIF/Rule */}
+                  <div className="relative min-w-[200px]">
+                    <span className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                      <Search className="h-3.5 w-3.5" />
+                    </span>
+                    <input
+                      type="text"
+                      className="w-full bg-[#f5f5f7] border border-[#e8e8ed] rounded-lg pl-8 pr-2.5 py-1.5 text-xs focus:outline-none focus:border-[#0071e3] font-mono text-slate-900"
+                      placeholder="Search CIF or Rule ID..."
+                      value={dbSearchCif}
+                      onChange={(e) => setDbSearchCif(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Filter by PSID */}
+                  <div className="min-w-[140px]">
+                    <select
+                      className="w-full bg-[#f5f5f7] border border-[#e8e8ed] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#0071e3] text-slate-700 font-medium"
+                      value={dbFilterPsid}
+                      onChange={(e) => setDbFilterPsid(e.target.value)}
+                    >
+                      <option value="ALL">User PSID</option>
+                      {Array.from(new Set(cases.map(c => c.assignedOfficer))).filter(Boolean).map(psid => {
+                        const strPsid = psid as string;
+                        const account = staffAccounts.find(s => s.psid.toUpperCase() === strPsid.toUpperCase());
+                        const displayName = account ? `${strPsid} - ${account.name}` : strPsid;
+                        return (
+                          <option key={strPsid} value={strPsid}>{displayName}</option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {/* Export FMS Cases to Excel */}
                   <button
                     onClick={() => {
-                      if (confirm("Are you absolutely sure you want to completely erase the client-side local registry? This operation is IRREVERSIBLE.")) {
-                        setCases([]);
-                        setNsrcEntries([]);
-                      }
+                      const defaultFilename = `FMS_Cases_Database_${new Date().toISOString().slice(0,10)}.xlsx`;
+                      setExcelExportPending({
+                        type: "FMS",
+                        data: filteredCases,
+                        defaultFilename,
+                        customFilename: defaultFilename
+                      });
                     }}
-                    className="px-3 py-1 bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 rounded text-xs font-bold transition flex items-center space-x-1"
+                    className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-3xs"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span>Clear Database</span>
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Export to Excel</span>
                   </button>
                 </div>
               </div>
@@ -3030,8 +3241,21 @@ export default function App() {
 
                   {/* BOTTOM REQUISITES: CUSTOMER IDENTIFIERS FOR FILE MATCHING REGULATION */}
                   <div className="space-y-4 bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                       
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
+                          NSRC Case ID
+                        </label>
+                        <input
+                          type="text"
+                          value={nsrcCaseId}
+                          onChange={(e) => setNsrcCaseId(e.target.value)}
+                          placeholder="e.g. NSRC-95431A"
+                          className="w-full px-2 py-1.5 border border-slate-300 bg-white rounded font-mono font-semibold focus:outline-none focus:border-slate-400 text-slate-900"
+                        />
+                      </div>
+
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                           Customer Identification (CIF)
@@ -3093,7 +3317,7 @@ export default function App() {
 
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                          Registered Disputed Amount (RM)
+                          Suspicious Amount (RM)
                         </label>
                         <input
                           type="text"
@@ -3182,7 +3406,7 @@ export default function App() {
                         <th className="px-3 py-2">CIF Number</th>
                         <th className="px-3 py-2">Account Number</th>
                         <th className="px-3 py-2">Blocked Status</th>
-                        <th className="px-3 py-2">Disputed Amount</th>
+                        <th className="px-3 py-2">Suspicious Amount</th>
                         <th className="px-3 py-2">Earmark Amount</th>
                         <th className="px-3 py-2">Business Unit</th>
                         <th className="px-3 py-2 text-center">Protected Action</th>
@@ -3391,6 +3615,68 @@ export default function App() {
                     </table>
                   </div>
 
+                  {/* PASSWORD SECURITY AUDIT LOG FEED */}
+                  <div className="mt-6 border-t border-slate-100 pt-5">
+                    <div className="flex items-center justify-between mb-3.5">
+                      <div className="flex items-center space-x-2">
+                        <Terminal className="h-4 w-4 text-[#0071e3]" />
+                        <h4 className="font-sans font-bold text-xs uppercase tracking-wider text-slate-800">
+                          Password Security & Audit Log System
+                        </h4>
+                      </div>
+                      <span className="text-[9px] bg-blue-50 text-[#0071e3] border border-blue-100 px-2 py-0.5 rounded font-bold font-sans">
+                        Real-time Auditing Active
+                      </span>
+                    </div>
+                    
+                    {(() => {
+                      const pwLogs = sessionLogs.filter(log => 
+                        log.action === "PASSWORD_CHANGE" || 
+                        log.action === "PASSWORD_RESET" ||
+                        log.action === "USER_REGISTER"
+                      );
+                      
+                      if (pwLogs.length === 0) {
+                        return (
+                          <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl text-center text-xs text-slate-400">
+                            No credential updates recorded in the log system yet.
+                          </div>
+                        );
+                      }
+                      
+                      return (
+                        <div className="max-h-[160px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                          {pwLogs.map((log) => {
+                            const isChange = log.action === "PASSWORD_CHANGE";
+                            const isReset = log.action === "PASSWORD_RESET";
+                            return (
+                              <div key={log.id} className="p-2.5 bg-[#f5f5f7] rounded-lg border border-slate-200/50 text-xs flex items-start justify-between gap-3">
+                                <div className="space-y-1">
+                                  <div className="flex items-center space-x-1.5">
+                                    <span className={`inline-block px-1.5 py-0.2 rounded text-[8px] font-bold uppercase font-sans ${
+                                      isChange ? "bg-emerald-50 text-emerald-800 border border-emerald-100" : isReset ? "bg-amber-50 text-amber-800 border border-amber-100" : "bg-blue-50 text-blue-800 border border-blue-100"
+                                    }`}>
+                                      {log.action}
+                                    </span>
+                                    <span className="font-bold text-slate-700 font-mono text-[11px]">
+                                      {log.psid} ({log.name})
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 font-sans">
+                                    {log.details}
+                                  </p>
+                                </div>
+                                <span className="text-[9px] text-slate-400 font-mono whitespace-nowrap shrink-0 mt-0.5">
+                                  {log.timestamp}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                   <div className="mt-5 p-3.5 bg-blue-50/50 rounded-xl border border-blue-105 flex items-start space-x-2.5 text-slate-700 text-xs">
                     <Info className="h-4.5 w-4.5 text-blue-600 shrink-0 mt-0.5" />
                     <div>
@@ -3442,13 +3728,13 @@ export default function App() {
                 </div>
                 <button 
                   onClick={() => setNsrcToExport(null)}
-                  className="text-slate-400 hover:text-slate-600 font-bold transition"
+                  className="text-slate-400 hover:text-slate-600 font-bold transition font-mono"
                 >
                   ✕
                 </button>
               </div>
 
-              <form onSubmit={(e) => { e.preventDefault(); handlePasswordModalSubmit(); }} className="p-5 space-y-4">
+              <form onSubmit={(e) => { e.preventDefault(); handlePasswordModalSubmit(); }} className="p-5 space-y-4 font-sans">
                 <div className="text-center space-y-1.5">
                   <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">Secure Export Protection</p>
                   <p className="text-[13px] text-slate-600 font-medium">
@@ -3493,6 +3779,97 @@ export default function App() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {excelExportPending && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-[9999] px-4 font-sans"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden font-sans text-left"
+            >
+              <div className="bg-[#f5f5f7] border-b border-slate-100 px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Download className="h-4 w-4 text-[#0071e3]" />
+                  <span className="font-semibold text-xs text-slate-800 uppercase tracking-wider font-mono">
+                    Excel Save Configuration
+                  </span>
+                </div>
+                <button 
+                  onClick={() => setExcelExportPending(null)}
+                  className="text-slate-400 hover:text-slate-600 font-bold transition"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className="text-center space-y-1.5">
+                  <p className="text-xs text-slate-400 uppercase tracking-widest font-bold font-sans">Local Device Storage</p>
+                  <p className="text-[13px] text-slate-600 font-medium font-sans">
+                    Configure your spreadsheet filename and choose where to save the spreadsheet on your local device.
+                  </p>
+                </div>
+
+                {/* FILENAME INPUT */}
+                <div className="space-y-1">
+                  <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold font-sans">
+                    Target Spreadsheet Filename
+                  </label>
+                  <input 
+                    type="text"
+                    required
+                    value={excelExportPending.customFilename}
+                    onChange={(e) => setExcelExportPending({
+                      ...excelExportPending,
+                      customFilename: e.target.value
+                    })}
+                    className="w-full text-xs font-mono py-2 px-3 border border-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded-lg bg-slate-50 text-slate-900"
+                  />
+                </div>
+
+                {/* LOCAL DIRECTORY INSTRUCTIONS */}
+                <div className="p-3.5 bg-blue-50/60 rounded-xl border border-blue-100 space-y-2 text-[11px] text-slate-600">
+                  <div className="flex items-center space-x-2 text-blue-900 font-bold font-sans">
+                    <Info className="h-4 w-4 text-blue-600 shrink-0" />
+                    <span>How to select save folder:</span>
+                  </div>
+                  <ul className="list-disc pl-4 space-y-1.5 font-sans leading-relaxed text-[11px]">
+                    <li>
+                      <strong>System Save Picker:</strong> On supported browsers, clicking <span className="font-bold text-[#0071e3]">"Confirm & Ask Save Location"</span> triggers a native system directory prompt so you can select exactly where to write this file.
+                    </li>
+                    <li>
+                      <strong>Standard Downloads:</strong> If the secure picker is bypassed, files are written to your default Downloads folder. To configure folder queries, navigate to Chrome settings and enable <em>"Ask where to save each file before downloading"</em>.
+                    </li>
+                  </ul>
+                </div>
+
+                {/* ACTIONS */}
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setExcelExportPending(null)}
+                    className="py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-xs font-bold transition font-sans"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmExcelExport}
+                    className="py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 shadow-2xs font-sans"
+                  >
+                    <Folder className="h-3.5 w-3.5 text-blue-400" />
+                    <span>Confirm & Ask Save Location</span>
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </motion.div>
         )}

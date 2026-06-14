@@ -37,6 +37,7 @@ export interface FMSCase {
 
 export interface NSRCEntry {
   id: string;
+  caseId: string;              // Case ID
   cif: string;
   regNo: string;               // Company/Officer registration number (Reg No)
   name: string;
