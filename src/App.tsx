@@ -40,6 +40,198 @@ import { parseFMSInput } from "./parser";
 import { downloadProtectedNSRCExcel } from "./excelExport";
 import { INITIAL_CASES, INITIAL_NSRC, MALAYSIAN_BANKS, OFFICER_SCORES, OfficerScore } from "./mockData";
 
+export interface BranchInfo {
+  code: string;
+  name: string;
+}
+
+const BRANCH_LIST: BranchInfo[] = [
+  { code: "2", name: "BMS CENTRAL" },
+  { code: "4", name: "WANGSA MAJU" },
+  { code: "5", name: "BATU CANTONMENT" },
+  { code: "6", name: "SEA PARK" },
+  { code: "7", name: "PORT KLANG" },
+  { code: "197", name: "BUKIT BARU" },
+  { code: "10", name: "BUTTERWORTH" },
+  { code: "11", name: "KEMAMAN" },
+  { code: "12", name: "KUANTAN" },
+  { code: "13", name: "JENGKA" },
+  { code: "14", name: "UiTM" },
+  { code: "16", name: "LUMUT" },
+  { code: "17", name: "MELAKA RAYA" },
+  { code: "18", name: "KOTA BHARU" },
+  { code: "19", name: "SETAPAK" },
+  { code: "20", name: "SERI PETALING" },
+  { code: "21", name: "PORT DICKSON" },
+  { code: "23", name: "ALORSETAR" },
+  { code: "24", name: "SEREMBAN @ RASAH" },
+  { code: "25", name: "TAWAU" },
+  { code: "26", name: "LTAT" },
+  { code: "27", name: "JOHOR BAHRU" },
+  { code: "28", name: "TAMAN TUN DR. ISMAIL" },
+  { code: "30", name: "AMPANG JAYA" },
+  { code: "31", name: "SUBANG JAYA" },
+  { code: "32", name: "IPOH" },
+  { code: "33", name: "TAMAN KINRARA" },
+  { code: "34", name: "JALAN IPOH" },
+  { code: "35", name: "KLUANG" },
+  { code: "36", name: "JOHOR JAYA" },
+  { code: "37", name: "KEMAMAN SUPPLY BASE" },
+  { code: "38", name: "KEPONG" },
+  { code: "40", name: "BANGSAR" },
+  { code: "41", name: "KUCHING" },
+  { code: "43", name: "RAWANG" },
+  { code: "44", name: "TAMAN MIDAH" },
+  { code: "46", name: "SUNGAI PETANI" },
+  { code: "47", name: "KAJANG" },
+  { code: "48", name: "BAYAN BARU" },
+  { code: "49", name: "PUTRAJAYA" },
+  { code: "54", name: "KULAI" },
+  { code: "55", name: "SITIAWAN" },
+  { code: "57", name: "AMPANG NEW VILLAGE" },
+  { code: "59", name: "KOTA KINABALU" },
+  { code: "60", name: "KEPALA BATAS" },
+  { code: "61", name: "SELAYANG" },
+  { code: "63", name: "USJ TAIPAN" },
+  { code: "65", name: "NILAI" },
+  { code: "68", name: "SEBERANG JAYA" },
+  { code: "69", name: "MIRI" },
+  { code: "71", name: "WISMA PERTAHANAN" },
+  { code: "73", name: "PERMAS JAYA" },
+  { code: "74", name: "KLANG SECURE TRANSIT" },
+  { code: "75", name: "KLANG UTARA" },
+  { code: "76", name: "BATU PAHAT" },
+  { code: "78", name: "LANGKAWI" },
+  { code: "79", name: "KANGAR" },
+  { code: "80", name: "TAMPOI" },
+  { code: "81", name: "SERI KEMBANGAN" },
+  { code: "84", name: "BINTULU" },
+  { code: "95", name: "JALAN BUNUS" },
+  { code: "98", name: "ARA DAMANSARA" },
+  { code: "99", name: "KOMPLEKS PKNS" },
+  { code: "102", name: "PUCHONG" },
+  { code: "107", name: "WISMA PELAUT" },
+  { code: "108", name: "PRAI" },
+  { code: "111", name: "IPOH GARDEN" },
+  { code: "112", name: "TELUK INTAN" },
+  { code: "115", name: "JELI" },
+  { code: "118", name: "CURVE" },
+  { code: "119", name: "FETTES PARK" },
+  { code: "120", name: "JALAN MACELISTER" },
+  { code: "121", name: "MENTAKAB" },
+  { code: "122", name: "MUAR" },
+  { code: "123", name: "PJ STATE" },
+  { code: "125", name: "SANDAKAN" },
+  { code: "126", name: "SEGAMAT" },
+  { code: "127", name: "SIBU" },
+  { code: "128", name: "TAIPING" },
+  { code: "129", name: "TAMAN MALURI" },
+  { code: "155", name: "LABUAN OFFSHORE" },
+  { code: "156", name: "JALAN GAYA, KK" },
+  { code: "157", name: "KL MAIN BRANCH" },
+  { code: "161", name: "AYER HITAM" },
+  { code: "162", name: "KOTA WARISAN, SEPANG" },
+  { code: "163", name: "TEMERLOH" },
+  { code: "165", name: "JALAN MERU, KLANG" },
+  { code: "166", name: "GEMAS" },
+  { code: "168", name: "KULIM" },
+  { code: "169", name: "PRINCE COMMERCIAL CENTRE" },
+  { code: "170", name: "MUTIARA RINI, SKUDAI" },
+  { code: "172", name: "BDR BUKIT TINGGI, KLG" },
+  { code: "173", name: "CYBERJAYA" },
+  { code: "174", name: "KOTA KEMUNING" },
+  { code: "175", name: "DANGA BAY, JB" },
+  { code: "176", name: "LAHAD DATU" },
+  { code: "177", name: "TAMAN DEMANG (s.kmbgn)" },
+  { code: "180", name: "TABUAN JAYA BRANCH/THE NORTHBANK" },
+  { code: "179", name: "KOTA DAMANSARA" },
+  { code: "181", name: "DENAI ALAM" },
+  { code: "190", name: "BANDAR CASSIA" },
+  { code: "659", name: "JURU BUSINESS CENTRE, PENANG / AUTOCITY" },
+  { code: "660", name: "TAMAN MOLEK BUSINESS CENTRE, JB" },
+  { code: "160", name: "TAMAN MOLEK BUSINESS CENTRE, JB" },
+  { code: "664", name: "MSU SHAH ALAM BUSINESS CENTRE" },
+  { code: "182", name: "BANDAR MERU RAYA, IPOH" },
+  { code: "686", name: "PUTRAJAYA PRESINT 15" },
+  { code: "186", name: "PUTRAJAYA PRESINT 15" },
+  { code: "526", name: "TELUK INTAN" },
+  { code: "602", name: "PUCHONG" },
+  { code: "688", name: "KOTA SAAS" },
+  { code: "187", name: "DESA PARK CITY" },
+  { code: "189", name: "BALAKONG" },
+  { code: "193", name: "DAMANSARA UTAMA" },
+  { code: "15", name: "KUALA TERENGGANU" },
+  { code: "196", name: "BUKIT DAHLIA" },
+  { code: "624", name: "PJ SS2" },
+  { code: "658", name: "FRASER BUSINESS CENTRE, KL" },
+  { code: "667", name: "JITRA" },
+  { code: "671", name: "BANGI" },
+  { code: "685", name: "KAMPUS PUNCAK ALAM" },
+  { code: "183", name: "BANDAR SRI SENDAYAN" },
+  { code: "178", name: "SENAWANG" },
+  { code: "699", name: "SOUTHKEY JOHOR" },
+  { code: "201", name: "AIR ITAM, PULAU PINANG" },
+  { code: "197", name: "MID VALLEY" },
+  { code: "203", name: "BUKIT MERTAJAM" },
+  { code: "194", name: "SEREMBAN 2" },
+  { code: "198", name: "NUSA BESTARI" },
+  { code: "200", name: "TAWAU" },
+  { code: "202", name: "SPRINGVILLE COMMERCIAL CENTRE" },
+  { code: "217", name: "ISKANDAR PUTERI" },
+  { code: "205", name: "RAUB" },
+  { code: "207", name: "ICOM SQUARE / ICS" },
+  { code: "209", name: "BUKIT DAMANSARA" },
+  { code: "208", name: "MIRI TIMES SQUARE" },
+  { code: "211", name: "SENAI" },
+  { code: "212", name: "HIKMAH EXCHANGE" },
+  { code: "204", name: "MOUNT OUSTIN" },
+  { code: "684", name: "MYTOWN" },
+  { code: "219", name: "KULIM HI-TECH PARK" },
+  { code: "206", name: "JALAN SATOK" },
+  { code: "213", name: "INANAM" },
+  { code: "214", name: "BATU KAWAH" },
+  { code: "218", name: "GENTING PERMAI" },
+  { code: "220", name: "SARADISE" },
+  { code: "210", name: "SETIA ALAM" },
+  { code: "215", name: "JELUTONG" },
+  { code: "195", name: "BANDAR SAUJANA PUTRA" },
+  { code: "515", name: "KUALA TERENGGANU" },
+  { code: "696", name: "BUKIT DAHLIA" },
+  { code: "124", name: "PJ SS2" },
+  { code: "158", name: "FRASER BUSINESS CENTRE, KL" },
+  { code: "167", name: "JITRA" },
+  { code: "171", name: "BANGI" },
+  { code: "185", name: "KAMPUS PUNCAK ALAM" },
+  { code: "683", name: "BANDAR SRI SENDAYAN" },
+  { code: "678", name: "SENAWANG" },
+  { code: "199", name: "SOUTHKEY JOHOR" },
+  { code: "701", name: "AIR ITAM, PULAU PINANG" },
+  { code: "697", name: "MID VALLEY" },
+  { code: "703", name: "BUKIT MERTAJAM" },
+  { code: "694", name: "SEREMBAN 2" },
+  { code: "698", name: "NUSA BESTARI" },
+  { code: "700", name: "TAWAU" },
+  { code: "702", name: "SPRINGVILLE COMMERCIAL CENTRE" },
+  { code: "717", name: "ISKANDAR PUTERI" },
+  { code: "705", name: "RAUB" },
+  { code: "707", name: "ICOM SQUARE / ICS" },
+  { code: "709", name: "BUKIT DAMANSARA" },
+  { code: "708", name: "MIRI TIMES SQUARE" },
+  { code: "711", name: "SENAI" },
+  { code: "712", name: "HIKMAH EXCHANGE" },
+  { code: "704", name: "MOUNT OUSTIN" },
+  { code: "184", name: "MYTOWN" },
+  { code: "719", name: "KULIM HI-TECH PARK" },
+  { code: "706", name: "JALAN SATOK" },
+  { code: "713", name: "INANAM" },
+  { code: "714", name: "BATU KAWAH" },
+  { code: "718", name: "GENTING PERMAI" },
+  { code: "720", name: "SARADISE" },
+  { code: "710", name: "SETIA ALAM" },
+  { code: "715", name: "JELUTONG" },
+  { code: "695", name: "BANDAR SAUJANA PUTRA" }
+];
+
 export default function App() {
   // Staff accounts & Auth States
   const [staffAccounts, setStaffAccounts] = useState<any[]>(() => {
@@ -65,7 +257,7 @@ export default function App() {
       {
         psid: "PS101477",
         name: "Nabil",
-        role: "Staff",
+        role: "Admin",
         status: "Active",
         password: "Affin123",
         mustChangePassword: true,
@@ -73,7 +265,7 @@ export default function App() {
       {
         psid: "PS101405",
         name: "Naja",
-        role: "Staff",
+        role: "Admin",
         status: "Active",
         password: "Affin123",
         mustChangePassword: true,
@@ -81,7 +273,7 @@ export default function App() {
       {
         psid: "PS101480",
         name: "Izzat",
-        role: "Staff",
+        role: "Admin",
         status: "Active",
         password: "Affin123",
         mustChangePassword: true,
@@ -94,10 +286,15 @@ export default function App() {
         if (Array.isArray(parsed) && parsed.length > 0) {
           // Verify that Zaim has Cyber@368. If not, update it to align with the prompt
           const updated = parsed.map((acc: any) => {
+            let updatedAcc = { ...acc };
             if (acc.psid === "PS101435" && acc.password === "Affin123") {
-              return { ...acc, password: "Cyber@368", mustChangePassword: false };
+              updatedAcc.password = "Cyber@368";
+              updatedAcc.mustChangePassword = false;
             }
-            return acc;
+            if (["PS101435", "PS101436", "PS101477", "PS101405", "PS101480"].includes(acc.psid.toUpperCase())) {
+              updatedAcc.role = "Admin";
+            }
+            return updatedAcc;
           });
           
           // Ensure all other required accounts are present
@@ -121,7 +318,17 @@ export default function App() {
 
   const [currentUser, setCurrentUser] = useState<any>(() => {
     const saved = localStorage.getItem("owl_current_user_v4");
-    return saved ? JSON.parse(saved) : null;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed) {
+          return { ...parsed, role: "Admin" };
+        }
+      } catch (e) {
+        console.error("Error reading saved current user:", e);
+      }
+    }
+    return null;
   });
 
   // State variables backboned by standard localStorage
@@ -189,6 +396,8 @@ export default function App() {
 
   // Global search & tools
   const [globalSearchCif, setGlobalSearchCif] = useState("");
+  const [caseSearchInputCif, setCaseSearchInputCif] = useState("");
+  const [branchSearchTerm, setBranchSearchTerm] = useState("");
   const [dbSearchCif, setDbSearchCif] = useState("");
   const [dbFilterPsid, setDbFilterPsid] = useState("ALL");
   const [copiedText, setCopiedText] = useState<string | null>(null);
@@ -212,16 +421,6 @@ export default function App() {
   const [loginPsid, setLoginPsid] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
-
-  // Automatically pre-fill memorized passwords when entering PSID
-  useEffect(() => {
-    const psidInput = loginPsid.trim().toUpperCase();
-    if (!psidInput) return;
-    const matched = staffAccounts.find(s => s.psid.toUpperCase() === psidInput);
-    if (matched) {
-      setLoginPassword(matched.password);
-    }
-  }, [loginPsid, staffAccounts]);
 
   // Change Password State
   const [oldPassword, setOldPassword] = useState("");
@@ -469,7 +668,12 @@ export default function App() {
   };
 
   const handleLoadCaseForUpdate = (cifNum: string) => {
-    const found = cases.find(c => c.cif === cifNum);
+    const cleanCif = cifNum.trim();
+    if (!cleanCif) {
+      alert("Please enter a valid CIF Number.");
+      return;
+    }
+    const found = cases.find(c => c.cif.trim().toUpperCase() === cleanCif.toUpperCase());
     if (found) {
       setCaseCif(found.cif);
       setCaseAmount(found.amount);
@@ -494,9 +698,9 @@ export default function App() {
       setEscalateTeam(found.escalateTeam || "No / Local Agent Only");
       setCaseMode("UPDATE");
       setActiveTab("CASE");
-      alert(`Case data loaded for CIF ${cifNum}. Edit values in the sidebar.`);
+      alert(`Case data loaded for CIF ${found.cif}. Edit values in the sidebar.`);
     } else {
-      alert(`No record found in database of cases for CIF: ${cifNum}`);
+      alert(`No record found in database of cases for CIF: ${cleanCif}`);
     }
   };
 
@@ -1383,25 +1587,9 @@ export default function App() {
                 required
                 value={loginPsid}
                 onChange={(e) => setLoginPsid(e.target.value)}
-                placeholder="e.g. PS101436"
+                placeholder="e.g. PS101435"
                 className="w-full bg-[#f5f5f7] border border-[#e8e8ed] rounded-lg px-3 py-2 text-xs text-[#1d1d1f] placeholder-slate-400 focus:outline-none focus:border-[#0071e3] focus:ring-4 focus:ring-blue-500/10 transition-all font-mono"
               />
-              <div className="flex flex-wrap gap-1 mt-2">
-                {["PS101435", "PS101436", "PS101477", "PS101405", "PS101480"].map((p) => (
-                  <button
-                    type="button"
-                    key={p}
-                    onClick={() => setLoginPsid(p)}
-                    className={`text-[9px] px-2 py-0.5 rounded border font-mono font-bold transition-all ${
-                      loginPsid.trim().toUpperCase() === p 
-                        ? "bg-slate-900 border-slate-900 text-white" 
-                        : "bg-[#f5f5f7] border-slate-200 text-slate-500 hover:bg-slate-100"
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
             </div>
             
             <div>
@@ -1600,39 +1788,6 @@ export default function App() {
       {/* CORE WORKSPACE container */}
       <main className="flex-1 p-5 max-w-[1600px] w-full mx-auto flex flex-col space-y-4 font-sans">
         
-        {/* GLOBAL CIF SEARCH BAR AVAILABLE ALWAYS */}
-        <div className="bg-white/70 backdrop-blur-md p-4 rounded-2xl border border-[#e8e8ed] shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center space-x-2.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-sans">Operational Status:</span>
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-100">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
-              Secure Database Ingestor Active
-            </span>
-          </div>
- 
-          <div className="relative w-full sm:w-80">
-            <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-              <Search className="h-3.5 w-3.5 text-slate-400" />
-            </span>
-            <input
-              id="cif-global-search"
-              type="text"
-              placeholder="Search database records by CIF..."
-              value={globalSearchCif}
-              onChange={(e) => setGlobalSearchCif(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-[#f5f5f7] border border-[#e8e8ed] text-xs rounded-full focus:border-[#0071e3] focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all font-sans placeholder-slate-400"
-            />
-            {globalSearchCif && (
-              <button 
-                onClick={() => setGlobalSearchCif("")}
-                className="absolute inset-y-0 right-0 flex items-center pr-3 text-[10px] text-slate-400 hover:text-slate-600 font-semibold cursor-pointer"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
-
         {/* TAB WORKSPACES CHOREOGRAPHIES */}
         <AnimatePresence mode="wait">
           
@@ -2042,6 +2197,7 @@ export default function App() {
                 <div className="flex space-x-1">
                   <button
                     id="case-btn-create"
+                    type="button"
                     onClick={() => {
                       setCaseMode("CREATE");
                     }}
@@ -2056,6 +2212,7 @@ export default function App() {
                   </button>
                   <button
                     id="case-btn-update"
+                    type="button"
                     onClick={() => {
                       setCaseMode("UPDATE");
                     }}
@@ -2070,9 +2227,93 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="text-[10px] text-slate-400 uppercase font-mono tracking-wider flex items-center">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>
-                  Active Mode: <strong className="text-slate-700 ml-1">{caseMode} CASE MODE</strong>
+                {/* FUNCTIONAL SEARCH CIF RECORD */}
+                <div className="flex items-center space-x-2">
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-slate-400">
+                      <Search className="h-3.5 w-3.5" />
+                    </span>
+                    <input
+                      id="case-top-search-cif"
+                      type="text"
+                      placeholder="Search CIF No..."
+                      value={caseSearchInputCif}
+                      onChange={(e) => setCaseSearchInputCif(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (caseSearchInputCif.trim()) {
+                            handleLoadCaseForUpdate(caseSearchInputCif.trim());
+                            setCaseSearchInputCif("");
+                          }
+                        }
+                      }}
+                      className="pl-8 pr-14 py-1.5 bg-[#f5f5f7] border border-[#e8e8ed] text-xs rounded-md focus:border-[#0071e3] focus:bg-white focus:outline-none transition-all font-mono w-48 placeholder-slate-400 text-slate-900"
+                    />
+                    {caseSearchInputCif && (
+                      <button
+                        type="button"
+                        onClick={() => setCaseSearchInputCif("")}
+                        className="absolute inset-y-0 right-9 flex items-center text-[10px] text-slate-400 hover:text-slate-650 cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (caseSearchInputCif.trim()) {
+                          handleLoadCaseForUpdate(caseSearchInputCif.trim());
+                          setCaseSearchInputCif("");
+                        }
+                      }}
+                      className="absolute inset-y-0 right-0 flex items-center px-2 text-[10px] font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-r-md cursor-pointer transition-colors"
+                    >
+                      GO
+                    </button>
+                    {/* DROPDOWN MATCHES FOR SMART AUTOCOMPLETE */}
+                    {caseSearchInputCif.trim() && (
+                      <div className="absolute right-0 top-full mt-1.5 w-64 bg-white border border-slate-200 rounded-lg shadow-xl z-50 text-xs py-1 max-h-48 overflow-y-auto">
+                        <div className="px-2 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                          Matching Database Cases
+                        </div>
+                        {(() => {
+                          const query = caseSearchInputCif.trim().toUpperCase();
+                          const matches = cases.filter(c => 
+                            c.cif.toUpperCase().includes(query) || 
+                            c.eventType.toUpperCase().includes(query) ||
+                            (c.ruleId && c.ruleId.toUpperCase().includes(query))
+                          );
+                          if (matches.length === 0) {
+                            return <div className="p-3 text-slate-400 text-center text-[11px]">No matching cases found</div>;
+                          }
+                          return matches.map((c, i) => (
+                            <button
+                              key={`${c.cif}-${i}`}
+                              type="button"
+                              onClick={() => {
+                                handleLoadCaseForUpdate(c.cif);
+                                setCaseSearchInputCif("");
+                              }}
+                              className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700 font-sans flex flex-col border-b border-slate-100 last:border-b-0 cursor-pointer"
+                            >
+                              <div className="flex justify-between items-center w-full">
+                                <span className="font-mono font-bold text-slate-900 bg-slate-100 px-1 py-0.5 rounded text-[10.5px]">
+                                  {c.cif}
+                                </span>
+                                <span className="text-[10px] font-bold text-emerald-600">
+                                  RM {c.amount.toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                                {c.eventType} {c.ruleId ? `(${c.ruleId})` : ""}
+                              </div>
+                            </button>
+                          ));
+                        })()}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -2118,117 +2359,204 @@ export default function App() {
                 </div>
 
 
-                {/* COLUMN 2 (4 cols Span) - SYSTEM METADATA AUTOMATED VIEW (READONLY) */}
-                <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col lg:col-span-4 min-h-[460px]">
-                  <div className="pb-2.5 border-b border-slate-100 mb-3 flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Activity className="h-4 w-4 text-blue-500" />
-                      <h4 className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">SYSTEM METADATA</h4>
+                {/* COLUMN 2 (4 cols Span) - SYSTEM METADATA & BRANCH SECTIONS */}
+                <div className="flex flex-col lg:col-span-4 space-y-4 lg:min-h-[460px]">
+                  {/* SYSTEM METADATA AUTOMATED VIEW (READONLY) */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col flex-1">
+                    <div className="pb-2.5 border-b border-slate-100 mb-3 flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Activity className="h-4 w-4 text-blue-500" />
+                        <h4 className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">SYSTEM METADATA</h4>
+                      </div>
+                      {caseMode === "UPDATE" && (
+                        <span className="text-[9px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-bold uppercase">
+                          Case Selection Pending
+                        </span>
+                      )}
                     </div>
-                    {caseMode === "UPDATE" && (
-                      <span className="text-[9px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-bold uppercase">
-                        Case Selection Pending
-                      </span>
-                    )}
-                  </div>
 
-                  {/* ONLY EDITABLE ARE CIF (with copy feature) and AMOUNT */}
-                  <div className="grid grid-cols-2 gap-3 mb-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">CIF Number / User ID</label>
-                      <div className="relative">
+                    {/* ONLY EDITABLE ARE CIF (with copy feature) and AMOUNT */}
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">CIF Number / User ID</label>
+                        <div className="relative">
+                          <input
+                            id="meta-input-cif"
+                            type="text"
+                            required
+                            value={caseCif}
+                            onChange={(e) => setCaseCif(e.target.value)}
+                            placeholder="Enter CIF..."
+                            className="w-full pl-2 pr-8 py-1.5 border border-slate-300 rounded font-mono font-bold text-xs text-slate-900 bg-white focus:outline-none focus:border-blue-500"
+                          />
+                          {caseCif && (
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(caseCif, `CIF ${caseCif}`)}
+                              title="Click to copy CIF"
+                              className="absolute right-1 top-1 p-1 rounded hover:bg-slate-100 text-blue-600 cursor-pointer"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Amount (RM)</label>
                         <input
-                          id="meta-input-cif"
-                          type="text"
-                          required
-                          value={caseCif}
-                          onChange={(e) => setCaseCif(e.target.value)}
-                          placeholder="Enter CIF..."
-                          className="w-full pl-2 pr-8 py-1.5 border border-slate-300 rounded font-mono font-bold text-xs text-slate-900 bg-white focus:outline-none focus:border-blue-500"
+                          id="meta-input-amount"
+                          type="number"
+                          value={caseAmount || ""}
+                          onChange={(e) => setCaseAmount(Number(e.target.value))}
+                          placeholder="0"
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded font-mono font-bold text-xs text-slate-900 bg-white focus:outline-none focus:border-blue-500"
                         />
-                        {caseCif && (
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(caseCif, `CIF ${caseCif}`)}
-                            title="Click to copy CIF"
-                            className="absolute right-1 top-1 p-1 rounded hover:bg-slate-100 text-blue-600 cursor-pointer"
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                          </button>
-                        )}
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Amount (RM)</label>
-                      <input
-                        id="meta-input-amount"
-                        type="number"
-                        value={caseAmount || ""}
-                        onChange={(e) => setCaseAmount(Number(e.target.value))}
-                        placeholder="0"
-                        className="w-full px-2 py-1.5 border border-slate-300 rounded font-mono font-bold text-xs text-slate-900 bg-white focus:outline-none focus:border-blue-500"
-                      />
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex-1 space-y-2.5 text-xs overflow-y-auto max-h-[220px]">
+                      <h5 className="font-bold text-[10px] uppercase tracking-wider text-slate-400 font-mono pb-1 border-b border-slate-200">
+                        Parsed FMS Fields (Read-Only)
+                      </h5>
+                      
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <span className="block text-[9px] uppercase font-bold text-slate-400">Event Type:</span>
+                          <span className="font-medium text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate">{caseEventType}</span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] uppercase font-bold text-slate-400">Risk Score:</span>
+                          <span className="font-mono font-bold text-[11px] block text-red-600 bg-white px-2 py-0.5 rounded border border-slate-100">{caseRiskScore}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <span className="block text-[9px] uppercase font-bold text-slate-400">Mode / Channel:</span>
+                          <span className="font-medium text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate">{caseModeChannel}</span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] uppercase font-bold text-slate-400">Rule ID:</span>
+                          <span className="font-semibold text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate">{caseRuleId}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <span className="block text-[9px] uppercase font-bold text-slate-400">FMS Case Status:</span>
+                          <span className="font-bold text-[10px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate text-amber-600">{caseFmsStatus}</span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] uppercase font-bold text-slate-400">Assigned Officer:</span>
+                          <span className="font-semibold text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100">{currentOfficer.psid}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <span className="block text-[9px] uppercase font-bold text-slate-400">Policy Action:</span>
+                        <span className="font-semibold text-xs block font-mono text-red-700 bg-white px-2 py-0.5 rounded border border-slate-100">{casePolicyAction}</span>
+                      </div>
+
+                      <div>
+                        <span className="block text-[9px] uppercase font-bold text-slate-400">Case Created Time:</span>
+                        <span className="font-mono text-[10px] text-slate-600 block bg-white px-2 py-0.5 rounded border border-slate-100">{caseCreatedTime || "-"}</span>
+                      </div>
+
+                      <div>
+                        <span className="block text-[9px] uppercase font-bold text-slate-400">Case Assigned Time:</span>
+                        <span className="font-mono text-[10px] text-slate-600 block bg-white px-2 py-0.5 rounded border border-slate-100">{caseAssignedTime || "-"}</span>
+                      </div>
+
+                    </div>
+
+                    <div className="mt-3 pt-2 text-[10px] text-slate-400 text-center font-mono uppercase bg-slate-50 rounded border border-slate-100 py-1 shrink-0">
+                      Ingestion Status: <strong className="text-slate-600">{ingestStatus}</strong>
                     </div>
                   </div>
 
-                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex-1 space-y-2.5 text-xs overflow-y-auto">
-                    <h5 className="font-bold text-[10px] uppercase tracking-wider text-slate-400 font-mono pb-1 border-b border-slate-200">
-                      Parsed FMS Fields (Read-Only)
-                    </h5>
+                  {/* BRANCH DIRECTORY LOOKUP CARD */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col shrink-0">
+                    <div className="pb-2.5 border-b border-slate-100 mb-3 flex items-center space-x-2">
+                      <Building2 className="h-4 w-4 text-sky-500" />
+                      <h4 className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">
+                        BRANCH DIRECTORY LOOKUP
+                      </h4>
+                    </div>
                     
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <span className="block text-[9px] uppercase font-bold text-slate-400">Event Type:</span>
-                        <span className="font-medium text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate">{caseEventType}</span>
-                      </div>
-                      <div>
-                        <span className="block text-[9px] uppercase font-bold text-slate-400">Risk Score:</span>
-                        <span className="font-mono font-bold text-[11px] block text-red-600 bg-white px-2 py-0.5 rounded border border-slate-100">{caseRiskScore}</span>
-                      </div>
+                    <div className="relative mb-2 shrink-0">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-slate-400">
+                        <Search className="h-3.5 w-3.5" />
+                      </span>
+                      <input
+                        id="branch-search-input"
+                        type="text"
+                        placeholder="Search branch code or name..."
+                        value={branchSearchTerm}
+                        onChange={(e) => setBranchSearchTerm(e.target.value)}
+                        className="w-full pl-8 pr-16 py-1.5 bg-[#f5f5f7] border border-[#e8e8ed] text-xs rounded-md focus:border-sky-500 focus:bg-white focus:outline-none transition-all font-sans text-slate-900 placeholder-slate-400"
+                      />
+                      {branchSearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setBranchSearchTerm("")}
+                          className="absolute inset-y-0 right-2 flex items-center text-[10px] text-slate-400 hover:text-slate-600 font-semibold cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
                     </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <span className="block text-[9px] uppercase font-bold text-slate-400">Mode / Channel:</span>
-                        <span className="font-medium text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate">{caseModeChannel}</span>
-                      </div>
-                      <div>
-                        <span className="block text-[9px] uppercase font-bold text-slate-400">Rule ID:</span>
-                        <span className="font-semibold text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate">{caseRuleId}</span>
-                      </div>
+                    
+                    {/* RESULTS AREA */}
+                    <div className="max-h-[140px] overflow-y-auto space-y-1.5 pr-1 font-sans">
+                      {(() => {
+                        const cleanQuery = branchSearchTerm.trim().toLowerCase();
+                        if (!cleanQuery) {
+                          return (
+                            <div className="text-[10px] text-slate-400 text-center py-2">
+                              Enter branch code or name to look up branch location
+                            </div>
+                          );
+                        }
+                        const filtered = BRANCH_LIST.filter(b => 
+                          b.code.includes(cleanQuery) || 
+                          b.name.toLowerCase().includes(cleanQuery)
+                        ).slice(0, 15);
+                        
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="text-[10px] text-red-500 text-center py-2 font-semibold">
+                              No matching branch found
+                            </div>
+                          );
+                        }
+                        
+                        return filtered.map((b, idx) => (
+                          <div 
+                            key={`${b.code}-${idx}`}
+                            className="flex items-center justify-between p-1.5 rounded bg-slate-50 border border-slate-100 hover:bg-sky-50/40 hover:border-sky-100 transition-all text-[11.5px]"
+                          >
+                            <div className="flex items-center space-x-2 truncate">
+                              <span className="px-1.5 py-0.5 bg-sky-100 text-sky-800 rounded text-[9px] font-mono font-bold">
+                                CODE {b.code}
+                              </span>
+                              <span className="font-semibold text-slate-700 truncate uppercase">
+                                {b.name}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(b.name, `Branch ${b.name}`)}
+                              className="text-[10px] text-sky-600 hover:text-sky-800 font-bold px-1.5 py-0.5 rounded hover:bg-sky-100 cursor-pointer flex items-center space-x-1 shrink-0"
+                              title="Copy branch name"
+                            >
+                              <Copy className="h-3 w-3" />
+                              <span>Copy</span>
+                            </button>
+                          </div>
+                        ));
+                      })()}
                     </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <span className="block text-[9px] uppercase font-bold text-slate-400">FMS Case Status:</span>
-                        <span className="font-bold text-[10px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate text-amber-600">{caseFmsStatus}</span>
-                      </div>
-                      <div>
-                        <span className="block text-[9px] uppercase font-bold text-slate-400">Assigned Officer:</span>
-                        <span className="font-semibold text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100">{currentOfficer.psid}</span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <span className="block text-[9px] uppercase font-bold text-slate-400">Policy Action:</span>
-                      <span className="font-semibold text-xs block font-mono text-red-700 bg-white px-2 py-0.5 rounded border border-slate-100">{casePolicyAction}</span>
-                    </div>
-
-                    <div>
-                      <span className="block text-[9px] uppercase font-bold text-slate-400">Case Created Time:</span>
-                      <span className="font-mono text-[10px] text-slate-600 block bg-white px-2 py-0.5 rounded border border-slate-100">{caseCreatedTime || "-"}</span>
-                    </div>
-
-                    <div>
-                      <span className="block text-[9px] uppercase font-bold text-slate-400">Case Assigned Time:</span>
-                      <span className="font-mono text-[10px] text-slate-600 block bg-white px-2 py-0.5 rounded border border-slate-100">{caseAssignedTime || "-"}</span>
-                    </div>
-
-                  </div>
-
-                  <div className="mt-3 pt-2 text-[10px] text-slate-400 text-center font-mono uppercase bg-slate-50 rounded border border-slate-100 py-1">
-                    Ingestion Status: <strong className="text-slate-600">{ingestStatus}</strong>
                   </div>
                 </div>
 
