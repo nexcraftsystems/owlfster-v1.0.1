@@ -262,6 +262,8 @@ const BRANCH_LIST: BranchInfo[] = [
   { code: "695", name: "BANDAR SAUJANA PUTRA" }
 ];
 
+const ONLINE_THRESHOLD_MS = 600000; // 10 minutes threshold to prevent background tab dormancy and network jitter from showing offline
+
 export default function App() {
   // Staff accounts & Auth States
   const [staffAccounts, setStaffAccounts] = useState<any[]>(() => {
@@ -345,6 +347,20 @@ export default function App() {
   });
 
   const [currentUser, setCurrentUser] = useState<any>(() => {
+    // Try sessionStorage first to support multi-tab/user workspace isolation
+    const sessionSaved = sessionStorage.getItem("owl_current_user_v4");
+    if (sessionSaved) {
+      try {
+        const parsed = JSON.parse(sessionSaved);
+        if (parsed) {
+          const role = parsed.psid.toUpperCase() === "PS101435" ? "Admin" : "Staff";
+          return { ...parsed, role };
+        }
+      } catch (e) {
+        console.error("Error reading saved sessionStorage user:", e);
+      }
+    }
+    // Fallback to localStorage
     const saved = localStorage.getItem("owl_current_user_v4");
     if (saved) {
       try {
@@ -580,8 +596,10 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser) {
+      sessionStorage.setItem("owl_current_user_v4", JSON.stringify(currentUser));
       localStorage.setItem("owl_current_user_v4", JSON.stringify(currentUser));
     } else {
+      sessionStorage.removeItem("owl_current_user_v4");
       localStorage.removeItem("owl_current_user_v4");
     }
   }, [currentUser]);
@@ -2484,11 +2502,11 @@ export default function App() {
                           <tr key={officer.psid} className={`hover:bg-slate-50 transition-colors ${isCurrent ? "bg-amber-50/40" : ""}`}>
                             <td className="px-3 py-2.5 font-bold text-slate-800 flex items-center space-x-1.5 whitespace-nowrap">
                               <span className={`h-2 w-2 rounded-full ${
-                                officer.isOnline && officer.lastActive && (Date.now() - new Date(officer.lastActive).getTime() < 45000)
+                                officer.isOnline && officer.lastActive && (Date.now() - new Date(officer.lastActive).getTime() < ONLINE_THRESHOLD_MS)
                                   ? "bg-emerald-500 animate-pulse" 
                                   : "bg-slate-300"
                               }`} title={
-                                officer.isOnline && officer.lastActive && (Date.now() - new Date(officer.lastActive).getTime() < 45000)
+                                officer.isOnline && officer.lastActive && (Date.now() - new Date(officer.lastActive).getTime() < ONLINE_THRESHOLD_MS)
                                   ? "Online & Transmitting Heartbeats"
                                   : "Offline / Inactive"
                               } />
@@ -4233,26 +4251,26 @@ export default function App() {
               </div>
 
               {/* LIVE ACTIVE SESSIONS QUICK SUMMARY */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white border border-[#e8e8ed] rounded-2xl p-4 shadow-3xs flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-sans">Active Concurrency</span>
-                    <h4 className="text-xl font-bold text-slate-900 font-sans flex items-center space-x-1.5">
-                      <span className="h-2.5 w-2.5 bg-emerald-500 rounded-full animate-pulse inline-block" />
-                      <span>{staffAccounts.filter(s => s.isOnline && s.lastActive && (Date.now() - new Date(s.lastActive).getTime() < 45000)).length} Active Session(s)</span>
-                    </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-white border border-[#e8e8ed] rounded-2xl p-4 shadow-3xs flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-sans">Active Concurrency</span>
+                      <h4 className="text-xl font-bold text-slate-900 font-sans flex items-center space-x-1.5">
+                        <span className="h-2.5 w-2.5 bg-emerald-500 rounded-full animate-pulse inline-block" />
+                        <span>{staffAccounts.filter(s => s.isOnline && s.lastActive && (Date.now() - new Date(s.lastActive).getTime() < ONLINE_THRESHOLD_MS)).length} Active Session(s)</span>
+                      </h4>
+                    </div>
+                    <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-xl border border-emerald-100 shadow-3xs">
+                      <Activity className="h-4.5 w-4.5 animate-pulse" />
+                    </div>
                   </div>
-                  <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-xl border border-emerald-100 shadow-3xs">
-                    <Activity className="h-4.5 w-4.5 animate-pulse" />
-                  </div>
-                </div>
 
-                <div className="bg-white border border-[#e8e8ed] rounded-2xl p-4 shadow-3xs md:col-span-2 flex items-center justify-between gap-4">
-                  <div className="space-y-1 w-full font-sans">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Currently Authenticated Devices</span>
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {(() => {
-                        const onlineUsers = staffAccounts.filter(s => s.isOnline && s.lastActive && (Date.now() - new Date(s.lastActive).getTime() < 45000));
+                  <div className="bg-white border border-[#e8e8ed] rounded-2xl p-4 shadow-3xs md:col-span-2 flex items-center justify-between gap-4">
+                    <div className="space-y-1 w-full font-sans">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Currently Authenticated Devices</span>
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {(() => {
+                          const onlineUsers = staffAccounts.filter(s => s.isOnline && s.lastActive && (Date.now() - new Date(s.lastActive).getTime() < ONLINE_THRESHOLD_MS));
                         if (onlineUsers.length === 0) {
                           return (
                             <span className="text-xs text-slate-400 italic">No active compliance officer sessions currently transmitting heartbeats.</span>
@@ -4380,7 +4398,7 @@ export default function App() {
                       <tbody className="divide-y divide-slate-100">
                         {staffAccounts.map((account) => {
                           const isRootAdmin = account.psid === "PS101435" || account.psid === "PS101436";
-                          const isOnline = account.isOnline && account.lastActive && (Date.now() - new Date(account.lastActive).getTime() < 45000);
+                          const isOnline = account.isOnline && account.lastActive && (Date.now() - new Date(account.lastActive).getTime() < ONLINE_THRESHOLD_MS);
                           const lastActiveStr = account.lastActive 
                             ? new Date(account.lastActive).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " " + new Date(account.lastActive).toLocaleDateString([], { month: 'short', day: 'numeric' })
                             : "Never";
