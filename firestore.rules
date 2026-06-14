@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default fallback rules
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Cases collection rules (real-time case records)
+    match /cases/{caseId} {
+      allow read, write: if true;
+    }
+
+    // NSRC entries collection rules (real-time NSRC block registrations)
+    match /nsrcEntries/{nsrcId} {
+      allow read, write: if true;
+    }
+
+    // Audit logs (cross-terminal login and action registries)
+    match /sessionLogs/{logId} {
+      allow read, write: if true;
+    }
+
+    // Staff accounts database (for secure central password coordination)
+    match /staffAccounts/{staffPsid} {
+      allow read, write: if true;
+    }
+  }
+}

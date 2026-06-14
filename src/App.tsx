@@ -32,13 +32,43 @@ import {
   Info,
   UserPlus,
   Terminal,
-  Folder
+  Folder,
+  User,
+  Globe
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { FMSCase, NSRCEntry, BankFI } from "./types";
 import { parseFMSInput } from "./parser";
 import { downloadProtectedNSRCExcel } from "./excelExport";
 import { INITIAL_CASES, INITIAL_NSRC, MALAYSIAN_BANKS, OFFICER_SCORES, OfficerScore } from "./mockData";
+import { db } from "./firebase";
+import { collection, doc, setDoc, deleteDoc, onSnapshot } from "firebase/firestore";
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: any;
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {},
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+}
 
 export interface BranchInfo {
   code: string;
@@ -243,13 +273,13 @@ export default function App() {
         name: "Zaim",
         role: "Admin",
         status: "Active",
-        password: "Cyber@368",
-        mustChangePassword: false,
+        password: "Affin123",
+        mustChangePassword: true,
       },
       {
         psid: "PS101436",
         name: "Faris",
-        role: "Admin",
+        role: "Staff",
         status: "Active",
         password: "Affin123",
         mustChangePassword: true,
@@ -257,7 +287,7 @@ export default function App() {
       {
         psid: "PS101477",
         name: "Nabil",
-        role: "Admin",
+        role: "Staff",
         status: "Active",
         password: "Affin123",
         mustChangePassword: true,
@@ -265,7 +295,7 @@ export default function App() {
       {
         psid: "PS101405",
         name: "Naja",
-        role: "Admin",
+        role: "Staff",
         status: "Active",
         password: "Affin123",
         mustChangePassword: true,
@@ -273,7 +303,7 @@ export default function App() {
       {
         psid: "PS101480",
         name: "Izzat",
-        role: "Admin",
+        role: "Staff",
         status: "Active",
         password: "Affin123",
         mustChangePassword: true,
@@ -284,15 +314,13 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Verify that Zaim has Cyber@368. If not, update it to align with the prompt
           const updated = parsed.map((acc: any) => {
             let updatedAcc = { ...acc };
-            if (acc.psid === "PS101435" && acc.password === "Affin123") {
-              updatedAcc.password = "Cyber@368";
-              updatedAcc.mustChangePassword = false;
-            }
-            if (["PS101435", "PS101436", "PS101477", "PS101405", "PS101480"].includes(acc.psid.toUpperCase())) {
+            const cleanPsidStr = acc.psid.toUpperCase();
+            if (cleanPsidStr === "PS101435") {
               updatedAcc.role = "Admin";
+            } else {
+              updatedAcc.role = "Staff";
             }
             return updatedAcc;
           });
@@ -322,7 +350,9 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed) {
-          return { ...parsed, role: "Admin" };
+          // Dynamically enforce role on load
+          const role = parsed.psid.toUpperCase() === "PS101435" ? "Admin" : "Staff";
+          return { ...parsed, role };
         }
       } catch (e) {
         console.error("Error reading saved current user:", e);
@@ -367,6 +397,168 @@ export default function App() {
     return initial;
   });
 
+  // Live Real-Time Firestore Synchronization
+  useEffect(() => {
+    // 1. Staff Accounts real-time syncing
+    const staffRef = collection(db, "staffAccounts");
+    const unsubscribeStaff = onSnapshot(staffRef, async (snapshot) => {
+      const coreAccounts = [
+        { psid: "PS101435", name: "Zaim", role: "Admin", status: "Active", password: "Affin123", mustChangePassword: true },
+        { psid: "PS101436", name: "Faris", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
+        { psid: "PS101477", name: "Nabil", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
+        { psid: "PS101405", name: "Naja", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
+        { psid: "PS101480", name: "Izzat", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true }
+      ];
+
+      if (snapshot.empty) {
+        const saved = localStorage.getItem("owl_staff_accounts_v4");
+        const listToSeed = saved ? JSON.parse(saved) : coreAccounts;
+        for (const item of listToSeed) {
+          await setDoc(doc(db, "staffAccounts", item.psid), item);
+        }
+      } else {
+        const items: any[] = [];
+        snapshot.forEach((doc) => items.push(doc.data()));
+        
+        let missingDetected = false;
+        for (const core of coreAccounts) {
+          if (!items.some(item => item.psid.toUpperCase() === core.psid.toUpperCase())) {
+            missingDetected = true;
+            await setDoc(doc(db, "staffAccounts", core.psid), core);
+          }
+        }
+        
+        if (!missingDetected) {
+          setStaffAccounts(items);
+        }
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, "staffAccounts");
+    });
+
+    // 2. Cases real-time syncing
+    const casesRef = collection(db, "cases");
+    const unsubscribeCases = onSnapshot(casesRef, async (snapshot) => {
+      if (snapshot.empty) {
+        for (const item of INITIAL_CASES) {
+          await setDoc(doc(db, "cases", item.id), item);
+        }
+      } else {
+        const items: FMSCase[] = [];
+        snapshot.forEach((doc) => items.push(doc.data() as FMSCase));
+        items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setCases(items);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, "cases");
+    });
+
+    // 3. NSRC Entries real-time syncing
+    const nsrcRef = collection(db, "nsrcEntries");
+    const unsubscribeNsrc = onSnapshot(nsrcRef, async (snapshot) => {
+      if (snapshot.empty) {
+        for (const item of INITIAL_NSRC) {
+          await setDoc(doc(db, "nsrcEntries", item.id), item);
+        }
+      } else {
+        const items: NSRCEntry[] = [];
+        snapshot.forEach((doc) => items.push(doc.data() as NSRCEntry));
+        items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setNsrcEntries(items);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, "nsrcEntries");
+    });
+
+    // 4. Session Logs real-time syncing
+    const logsRef = collection(db, "sessionLogs");
+    const unsubscribeLogs = onSnapshot(logsRef, async (snapshot) => {
+      if (snapshot.empty) {
+        const initialLogs = [
+          {
+            id: "log-seed-1",
+            psid: "PS101435",
+            name: "Zaim",
+            action: "PASSWORD_CHANGE",
+            timestamp: new Date(Date.now() - 3600000 * 24 * 3).toLocaleString(),
+            details: "Password changed from 'Affin123' to 'Cyber@368' successfully (Secured)"
+          },
+          {
+            id: "log-seed-2",
+            psid: "PS101435",
+            name: "Zaim",
+            action: "LOGIN",
+            timestamp: new Date(Date.now() - 3600000 * 24 * 3 + 60000).toLocaleString(),
+            details: "Session Authenticated (Role: Admin)"
+          }
+        ];
+        for (const item of initialLogs) {
+          await setDoc(doc(db, "sessionLogs", item.id), item);
+        }
+      } else {
+        const items: any[] = [];
+        snapshot.forEach((doc) => items.push(doc.data()));
+        items.sort((a, b) => {
+          const aId = a.id || "";
+          const bId = b.id || "";
+          return bId > aId ? 1 : -1;
+        });
+        setSessionLogs(items);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, "sessionLogs");
+    });
+
+    return () => {
+      unsubscribeStaff();
+      unsubscribeCases();
+      unsubscribeNsrc();
+      unsubscribeLogs();
+    };
+  }, []);
+
+  // Live real-time heartbeat updates for checking "who is currently logged in"
+  useEffect(() => {
+    if (!currentUser?.psid) return;
+    
+    const updateHeartbeat = async () => {
+      try {
+        const staffRef = doc(db, "staffAccounts", currentUser.psid);
+        const liveUser = staffAccounts.find(s => s.psid.toUpperCase() === currentUser.psid.toUpperCase());
+        if (liveUser) {
+          await setDoc(staffRef, {
+            ...liveUser,
+            isOnline: true,
+            lastActive: new Date().toISOString()
+          });
+        } else {
+          await setDoc(staffRef, {
+            psid: currentUser.psid,
+            name: currentUser.name,
+            role: currentUser.role || "Staff Officer",
+            status: "Active",
+            password: currentUser.password || "Affin123",
+            mustChangePassword: currentUser.mustChangePassword || false,
+            isOnline: true,
+            lastActive: new Date().toISOString()
+          });
+        }
+      } catch (err) {
+        console.error("Heartbeat sync error:", err);
+      }
+    };
+
+    // Run initially
+    updateHeartbeat();
+
+    // Run interval heartbeat every 20 seconds
+    const interval = setInterval(updateHeartbeat, 20000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [currentUser?.psid, staffAccounts.length]);
+
   const [activeTab, setActiveTab] = useState<"DASHBOARD" | "CASE" | "DATABASE" | "SEARCH FI" | "NSRC" | "ADMIN">("CASE");
 
   // Save to persistence
@@ -400,6 +592,9 @@ export default function App() {
   const [branchSearchTerm, setBranchSearchTerm] = useState("");
   const [dbSearchCif, setDbSearchCif] = useState("");
   const [dbFilterPsid, setDbFilterPsid] = useState("ALL");
+  const [dbDivision, setDbDivision] = useState<"PERSONAL" | "GLOBAL">("GLOBAL");
+  const [expandedFmsCases, setExpandedFmsCases] = useState<Record<string, boolean>>({});
+  const [expandedNsrcEntries, setExpandedNsrcEntries] = useState<Record<string, boolean>>({});
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   // Excel Export Destination & Location prompt state
@@ -598,15 +793,19 @@ export default function App() {
   };
 
   // Save the FMS case inside system
-  const handleCommitCaseEntry = (e: React.FormEvent) => {
+  const handleCommitCaseEntry = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!caseCif) {
       alert("CIF Identification is required.");
       return;
     }
 
-    const newCase: FMSCase = {
-      id: "fms-" + Date.now(),
+    const existsIdx = cases.findIndex(c => c.cif === caseCif);
+    const finalId = caseMode === "UPDATE" && existsIdx >= 0 ? cases[existsIdx].id : "fms-" + Date.now();
+    const finalCreatedAt = caseMode === "UPDATE" && existsIdx >= 0 ? cases[existsIdx].createdAt : new Date().toISOString();
+
+    const finalCase: FMSCase = {
+      id: finalId,
       cif: caseCif,
       amount: Number(caseAmount),
       eventType: caseEventType === "-" ? "MANUAL_INGESTION" : caseEventType,
@@ -629,24 +828,25 @@ export default function App() {
       thirdCallRemarks,
       statusAction,
       escalateTeam,
-      createdAt: new Date().toISOString()
+      createdAt: finalCreatedAt
     };
 
-    // Replace if updating or exist already
-    const existsIdx = cases.findIndex(c => c.cif === caseCif);
-    if (caseMode === "UPDATE" && existsIdx >= 0) {
-      const updated = [...cases];
-      updated[existsIdx] = {
-        ...updated[existsIdx],
-        ...newCase,
-        id: updated[existsIdx].id, // retain original ID
-        createdAt: updated[existsIdx].createdAt // retain original registration stamp
-      };
-      setCases(updated);
-      alert(`Case updated successfully for CIF: ${caseCif}`);
-    } else {
-      setCases([newCase, ...cases]);
-      alert(`Case committed successfully for CIF: ${caseCif}`);
+    try {
+      await setDoc(doc(db, "cases", finalId), finalCase);
+      if (caseMode === "UPDATE" && existsIdx >= 0) {
+        alert(`Case updated successfully in live sync database for CIF: ${caseCif}`);
+      } else {
+        alert(`Case committed successfully to live sync database for CIF: ${caseCif}`);
+      }
+    } catch (error) {
+      console.error("Firestore error saving case:", error);
+      if (caseMode === "UPDATE" && existsIdx >= 0) {
+        const updated = [...cases];
+        updated[existsIdx] = finalCase;
+        setCases(updated);
+      } else {
+        setCases([finalCase, ...cases]);
+      }
     }
     
     handleResetUI();
@@ -1033,7 +1233,7 @@ export default function App() {
     }
   }, [nsrcAccNum, nsrcDateStamp]);
 
-  const handleSaveNSRC = (e: React.FormEvent) => {
+  const handleSaveNSRC = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nsrcCif || !nsrcName || !nsrcAccNum) {
       alert("NSRC report registration requires Account number, CIF, and Name inputs.");
@@ -1057,11 +1257,18 @@ export default function App() {
       remarks: nsrcRemarks || "NSRC SUSPECT BANNER ACTIVATED",
       reason: nsrcReason || "NSRC REQUESTED",
       dateStamp: nsrcDateStamp,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      officerPsid: currentOfficer.psid
     };
 
-    setNsrcEntries([newNSRC, ...nsrcEntries]);
-    alert("NSRC Report saved in localized operational database.");
+    try {
+      await setDoc(doc(db, "nsrcEntries", newNSRC.id), newNSRC);
+      alert("NSRC Report successfully saved and synced across all terminals.");
+    } catch (error) {
+      console.error("Firestore error saving NSRC:", error);
+      setNsrcEntries([newNSRC, ...nsrcEntries]);
+      alert("NSRC Report saved locally.");
+    }
     
     // reset NSRC inputs
     setNsrcCaseId("");
@@ -1151,14 +1358,15 @@ export default function App() {
     setAutofillSuggestion(null);
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError("");
     const psidInput = loginPsid.trim().toUpperCase();
     
     // Restriction: Only authorized users can access this system
     const ALLOWED_PSIDS = ["PS101435", "PS101436", "PS101477", "PS101405", "PS101480"];
-    if (!ALLOWED_PSIDS.includes(psidInput)) {
+    const isAuthorized = ALLOWED_PSIDS.includes(psidInput) || staffAccounts.some(s => s.psid.toUpperCase() === psidInput);
+    if (!isAuthorized) {
       setLoginError("Access Denied: This PSID is not authorized to access this system.");
       return;
     }
@@ -1182,14 +1390,26 @@ export default function App() {
       timestamp: new Date().toLocaleString(),
       details: `Session Authenticated (Role: ${account.role === "Admin" ? "Root Admin" : "Officer"})`
     };
-    setSessionLogs(prev => [newLog, ...prev]);
+    try {
+      await setDoc(doc(db, "sessionLogs", newLog.id), newLog);
+      
+      // Update account status in Firestore on login
+      await setDoc(doc(db, "staffAccounts", account.psid), {
+        ...account,
+        isOnline: true,
+        lastActive: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error("Firestore logging or status error:", err);
+      setSessionLogs(prev => [newLog, ...prev]);
+    }
 
     setCurrentUser(account);
     setLoginPsid("");
     setLoginPassword("");
   };
 
-  const handleChangePasswordSubmit = (e: React.FormEvent) => {
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError("");
     if (!oldPassword || !newPassword || !confirmPassword) {
@@ -1215,19 +1435,12 @@ export default function App() {
       return;
     }
     
-    const updatedStaff = staffAccounts.map(s => {
-      if (s.psid === currentUser.psid) {
-        return {
-          ...s,
-          password: newPassword,
-          mustChangePassword: false
-        };
-      }
-      return s;
-    });
-    
-    setStaffAccounts(updatedStaff);
-    
+    const updatedStaffAccount = {
+      ...liveAccount,
+      password: newPassword,
+      mustChangePassword: false
+    };
+
     // Log real-time PASSWORD_CHANGE event
     const passChangeLog = {
       id: "log-" + Date.now(),
@@ -1237,7 +1450,24 @@ export default function App() {
       timestamp: new Date().toLocaleString(),
       details: `Password changed from '${oldPassword}' to '${newPassword}' successfully (Secured)`
     };
-    setSessionLogs(prev => [passChangeLog, ...prev]);
+
+    try {
+      // Direct Firestore updates will trigger snapshot listeners to update UI globally instantly
+      await setDoc(doc(db, "staffAccounts", liveAccount.psid), updatedStaffAccount);
+      await setDoc(doc(db, "sessionLogs", passChangeLog.id), passChangeLog);
+      alert("Password successfully synchronized in Firestore. Security compliance cleared!");
+    } catch (e) {
+      console.error("Firestore error changing password:", e);
+      const updatedStaff = staffAccounts.map(s => {
+        if (s.psid === currentUser.psid) {
+          return updatedStaffAccount;
+        }
+        return s;
+      });
+      setStaffAccounts(updatedStaff);
+      setSessionLogs(prev => [passChangeLog, ...prev]);
+      alert("Password updated locally (Offline fallback).");
+    }
     
     const updatedUser = {
       ...currentUser,
@@ -1249,10 +1479,9 @@ export default function App() {
     setOldPassword("");
     setNewPassword("");
     setConfirmPassword("");
-    alert("Password successfully updated. Security compliance cleared!");
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (currentUser) {
       // Log LOGOUT event
       const newLog = {
@@ -1263,13 +1492,28 @@ export default function App() {
         timestamp: new Date().toLocaleString(),
         details: "Session Terminated"
       };
-      setSessionLogs(prev => [newLog, ...prev]);
+      try {
+        await setDoc(doc(db, "sessionLogs", newLog.id), newLog);
+        
+        // Update user status
+        const liveUser = staffAccounts.find(s => s.psid.toUpperCase() === currentUser.psid.toUpperCase());
+        if (liveUser) {
+          await setDoc(doc(db, "staffAccounts", currentUser.psid), {
+            ...liveUser,
+            isOnline: false,
+            lastActive: new Date().toISOString()
+          });
+        }
+      } catch (err) {
+        console.error(err);
+        setSessionLogs(prev => [newLog, ...prev]);
+      }
     }
     setCurrentUser(null);
     setActiveTab("CASE");
   };
 
-  const handleCreateNewStaff = (e: React.FormEvent) => {
+  const handleCreateNewStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdminMessage("");
     const cleanPsid = newStaffPsid.trim().toUpperCase();
@@ -1302,25 +1546,40 @@ export default function App() {
       password: "Affin123",
       mustChangePassword: true,
     };
+
+    const registerLog = {
+      id: "log-" + Date.now(),
+      psid: currentUser ? currentUser.psid : "ADMIN",
+      name: currentUser ? currentUser.name : "System",
+      action: "USER_REGISTER",
+      timestamp: new Date().toLocaleString(),
+      details: `Registered new officer: ${newOfficer.name} (${newOfficer.psid})`
+    };
     
-    setStaffAccounts([...staffAccounts, newOfficer]);
-    setNewStaffPsid("");
-    setNewStaffName("");
-    setAdminMessage(`Successfully registered officer ${newOfficer.name} (${newOfficer.psid}) with default password 'Affin123'!`);
+    try {
+      await setDoc(doc(db, "staffAccounts", cleanPsid), newOfficer);
+      await setDoc(doc(db, "sessionLogs", registerLog.id), registerLog);
+      setNewStaffPsid("");
+      setNewStaffName("");
+      setAdminMessage(`Successfully registered officer ${newOfficer.name} (${newOfficer.psid}) with default password 'Affin123'!`);
+    } catch (error) {
+      console.error(error);
+      setStaffAccounts([...staffAccounts, newOfficer]);
+      setNewStaffPsid("");
+      setNewStaffName("");
+      setAdminMessage(`Successfully registered officer ${newOfficer.name} (${newOfficer.psid}) with default password 'Affin123' (Local Only)!`);
+    }
   };
 
-  const handleAdminResetPassword = (psid: string) => {
-    const updated = staffAccounts.map(s => {
-      if (s.psid === psid) {
-        return {
-          ...s,
-          password: "Affin123",
-          mustChangePassword: true
-        };
-      }
-      return s;
-    });
-    setStaffAccounts(updated);
+  const handleAdminResetPassword = async (psid: string) => {
+    const s = staffAccounts.find(acc => acc.psid === psid);
+    if (!s) return;
+    
+    const updatedAcc = {
+      ...s,
+      password: "Affin123",
+      mustChangePassword: true
+    };
     
     // Log PASSWORD_RESET event
     const resetLog = {
@@ -1331,7 +1590,18 @@ export default function App() {
       timestamp: new Date().toLocaleString(),
       details: `Administrator reset password for officer ${psid} to 'Affin123' (First Change Required)`
     };
-    setSessionLogs(prev => [resetLog, ...prev]);
+
+    try {
+      await setDoc(doc(db, "staffAccounts", psid), updatedAcc);
+      await setDoc(doc(db, "sessionLogs", resetLog.id), resetLog);
+      alert(`Successfully reset password for officer ${psid} back to 'Affin123'. They will be required to change it on their next login session.`);
+    } catch (e) {
+      console.error(e);
+      const updated = staffAccounts.map(acc => acc.psid === psid ? updatedAcc : acc);
+      setStaffAccounts(updated);
+      setSessionLogs(prev => [resetLog, ...prev]);
+      alert(`Successfully reset password for officer ${psid} back to 'Affin123' (Local).`);
+    }
     
     if (currentUser && currentUser.psid === psid) {
       setCurrentUser({
@@ -1340,17 +1610,57 @@ export default function App() {
         mustChangePassword: true
       });
     }
-    alert(`Successfully reset password for officer ${psid} back to 'Affin123'. They will be required to change it on their next login session.`);
+  };
+  
+  const handleRestoreDefaultAccounts = async () => {
+    if (!confirm("Are you sure you want to reset and restore all 5 standard corporate compliance accounts (Zaim, Faris, Nabil, Naja, Izzat) back to their default password 'Affin123' and require password changes on login? This will overwrite their current passwords and statuses in the database.")) {
+      return;
+    }
+    
+    const corporateDefaults = [
+      { psid: "PS101435", name: "Zaim", role: "Admin", status: "Active", password: "Affin123", mustChangePassword: true },
+      { psid: "PS101436", name: "Faris", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
+      { psid: "PS101477", name: "Nabil", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
+      { psid: "PS101405", name: "Naja", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
+      { psid: "PS101480", name: "Izzat", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true }
+    ];
+
+    try {
+      for (const officer of corporateDefaults) {
+        await setDoc(doc(db, "staffAccounts", officer.psid), officer);
+      }
+      
+      const resetLog = {
+        id: "log-" + Date.now(),
+        psid: currentUser?.psid || "SYSTEM",
+        name: currentUser?.name || "Administrator",
+        action: "PASSWORD_RESET",
+        timestamp: new Date().toLocaleString(),
+        details: `Administrator bulk-restored all 5 corporate compliance profiles to 'Affin123' (First-time password change forced)`
+      };
+      await setDoc(doc(db, "sessionLogs", resetLog.id), resetLog);
+      
+      alert("All 5 corporate compliance profiles successfully restored to default state in Firestore!");
+    } catch (error) {
+      console.error("Error bulk restoring profiles:", error);
+      alert("Error restoring profiles in Firestore. Please try again.");
+    }
   };
 
-  const handleAdminDeleteStaff = (psid: string) => {
-    if (psid === "PS101436") {
-      alert("Error: Root administrator (PS101436) cannot be deleted.");
+  const handleAdminDeleteStaff = async (psid: string) => {
+    if (psid === "PS101435" || psid === "PS101436") {
+      alert("Error: Root administrator accounts (PS101435 / PS101436) cannot be deleted.");
       return;
     }
     if (confirm(`Are you sure you want to delete staff account ${psid}?`)) {
-      setStaffAccounts(staffAccounts.filter(s => s.psid !== psid));
-      alert(`Staff account ${psid} deleted.`);
+      try {
+        await deleteDoc(doc(db, "staffAccounts", psid));
+        alert(`Staff account ${psid} deleted.`);
+      } catch (e) {
+        console.error(e);
+        setStaffAccounts(staffAccounts.filter(s => s.psid !== psid));
+        alert(`Staff account ${psid} deleted locally.`);
+      }
     }
   };
 
@@ -1433,13 +1743,15 @@ export default function App() {
       cifMatch = c.cif.includes(globalSearchCif) || c.ruleId.toLowerCase().includes(globalSearchCif.toLowerCase());
     }
 
-    // 2. PSID Filter
-    let psidMatch = true;
-    if (dbFilterPsid !== "ALL") {
-      psidMatch = c.assignedOfficer === dbFilterPsid;
+    // 2. PSID / Division Filter
+    let divisionMatch = true;
+    if (dbDivision === "PERSONAL") {
+      divisionMatch = c.assignedOfficer.toUpperCase() === currentOfficer.psid.toUpperCase();
+    } else if (dbFilterPsid !== "ALL") {
+      divisionMatch = c.assignedOfficer.toUpperCase() === dbFilterPsid.toUpperCase();
     }
 
-    return cifMatch && psidMatch;
+    return cifMatch && divisionMatch;
   });
 
   const filteredNSRC = nsrcEntries.filter(n => {
@@ -1454,7 +1766,14 @@ export default function App() {
                  n.accountNumber.includes(globalSearchCif) || 
                  n.name.toLowerCase().includes(globalSearchCif.toLowerCase());
     }
-    return cifMatch;
+
+    let divisionMatch = true;
+    if (dbDivision === "PERSONAL") {
+      // Show seed entries (which don't have officerPsid field) OR entries created by the logged in officer
+      divisionMatch = !n.officerPsid || n.officerPsid.toUpperCase() === currentOfficer.psid.toUpperCase();
+    }
+
+    return cifMatch && divisionMatch;
   });
 
   // Dynamic conditional formatting helpers for Call Verification Area
@@ -2112,8 +2431,13 @@ export default function App() {
               <div id="stat-scorecard-table" className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
                 <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
                   <div>
-                    <h4 className="font-display font-semibold text-xs text-slate-800 uppercase tracking-wider">PSID Team Daily Scorecard Graph</h4>
-                    <p className="text-[10px] text-slate-400">Real-time status tracking per security officer</p>
+                    <h4 className="font-display font-semibold text-xs text-slate-800 uppercase tracking-wider flex items-center space-x-2">
+                      <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span>Consolidated Daily Team Productivity Scorecard (All Compliance Officers Sync)</span>
+                    </h4>
+                    <p className="text-[10px] text-indigo-750 font-bold">
+                      Reflecting team-wide real-time FMS case resolutions and decision workloads synced across all database roles
+                    </p>
                   </div>
                   <button 
                     onClick={() => {
@@ -2158,19 +2482,28 @@ export default function App() {
 
                         return (
                           <tr key={officer.psid} className={`hover:bg-slate-50 transition-colors ${isCurrent ? "bg-amber-50/40" : ""}`}>
-                            <td className="px-3 py-2.5 font-bold text-slate-800 flex items-center space-x-1.5">
-                              {isCurrent && <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>}
+                            <td className="px-3 py-2.5 font-bold text-slate-800 flex items-center space-x-1.5 whitespace-nowrap">
+                              <span className={`h-2 w-2 rounded-full ${
+                                officer.isOnline && officer.lastActive && (Date.now() - new Date(officer.lastActive).getTime() < 45000)
+                                  ? "bg-emerald-500 animate-pulse" 
+                                  : "bg-slate-300"
+                              }`} title={
+                                officer.isOnline && officer.lastActive && (Date.now() - new Date(officer.lastActive).getTime() < 45000)
+                                  ? "Online & Transmitting Heartbeats"
+                                  : "Offline / Inactive"
+                              } />
+                              {isCurrent && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" title="Your Session" />}
                               <span>{officer.psid}</span>
                               <span className="text-[10px] text-slate-400 font-normal">({officer.name})</span>
                             </td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-red-600 font-mono">{confirmFraud}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-amber-600 font-mono">{suspectedFraud}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-green-600 font-mono">{confirmGenuine}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-blue-600 font-mono">{assumeGenuine}</td>
-                            <td className="px-3 py-2.5 text-center font-bold font-mono">{totalWorkload}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-indigo-600 font-mono">{contacted}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-slate-500 font-mono">{noContact}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-slate-705 font-mono">{closeManual}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-red-600 font-mono">{confirmFraud === 0 ? "-" : confirmFraud}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-amber-600 font-mono">{suspectedFraud === 0 ? "-" : suspectedFraud}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-green-600 font-mono">{confirmGenuine === 0 ? "-" : confirmGenuine}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-blue-600 font-mono">{assumeGenuine === 0 ? "-" : assumeGenuine}</td>
+                            <td className="px-3 py-2.5 text-center font-bold font-mono">{totalWorkload === 0 ? "-" : totalWorkload}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-indigo-600 font-mono">{contacted === 0 ? "-" : contacted}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-slate-500 font-mono">{noContact === 0 ? "-" : noContact}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-slate-705 font-mono">{closeManual === 0 ? "-" : closeManual}</td>
                           </tr>
                         );
                       })}
@@ -2320,49 +2653,135 @@ export default function App() {
               {/* THREE-COLUMN INTEGRATED COMPACT WORKSPACE */}
               <form onSubmit={handleCommitCaseEntry} className="grid grid-cols-1 lg:grid-cols-12 gap-4">
                 
-                {/* COLUMN 1 (4 cols Span) - RAW INGESTION */}
-                <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col lg:col-span-3 min-h-[460px]">
-                  <div className="pb-2.5 border-b border-slate-100 mb-3 flex items-center space-x-2">
-                    <Layers className="h-4 w-4 text-indigo-500" />
-                    <h4 className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">RAW INGESTION</h4>
-                  </div>
-                  <p className="text-[10px] text-slate-400 mb-2">
-                    Paste the complete row copy-pasted directly from your FMS dashboard to parse instantly.
-                  </p>
-                  
-                  <textarea
-                    id="raw-ingest-text"
-                    value={rawInput}
-                    onChange={(e) => setRawInput(e.target.value)}
-                    placeholder="Paste FMS raw data rows/columns here..."
-                    className="flex-1 w-full p-2 bg-slate-50 border border-slate-200 text-xs font-mono rounded-md focus:outline-none focus:border-indigo-500 resize-none mb-3 h-48 lg:h-auto"
-                  />
+                {/* COLUMN 1 (4 cols Span) - STACKED RAW INGESTION & BRANCH DIRECTORY LOOKUP */}
+                <div className="flex flex-col lg:col-span-4 space-y-4">
+                  {/* RAW INGESTION */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col">
+                    <div className="pb-2.5 border-b border-slate-100 mb-3 flex items-center space-x-2">
+                      <Layers className="h-4 w-4 text-indigo-500" />
+                      <h4 className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">RAW INGESTION</h4>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mb-2">
+                      Paste the complete row copy-pasted directly from your FMS dashboard to parse instantly.
+                    </p>
+                    
+                    <textarea
+                      id="raw-ingest-text"
+                      value={rawInput}
+                      onChange={(e) => setRawInput(e.target.value)}
+                      placeholder="Paste FMS raw data rows/columns here..."
+                      className="w-full p-2 bg-slate-50 border border-slate-200 text-xs font-mono rounded-md focus:outline-none focus:border-indigo-500 resize-none mb-3 h-28"
+                    />
 
-                  <div className="grid grid-cols-2 gap-2 mt-auto">
-                    <button
-                      id="btn-parse-data"
-                      type="button"
-                      onClick={handleParseRawData}
-                      className="w-full text-center py-2 bg-slate-800 font-bold text-white text-[11px] rounded hover:bg-slate-700 transition"
-                    >
-                      PARSE RAW DATA
-                    </button>
-                    <button
-                      id="btn-clear-pane"
-                      type="button"
-                      onClick={handleClearRawPane}
-                      className="w-full text-center py-2 bg-slate-100 text-slate-600 font-bold border border-slate-200 text-[11px] rounded hover:bg-slate-200 transition"
-                    >
-                      CLEAR RAW PANE
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        id="btn-parse-data"
+                        type="button"
+                        onClick={handleParseRawData}
+                        className="w-full text-center py-2 bg-slate-800 font-bold text-white text-[11px] rounded hover:bg-slate-700 transition cursor-pointer"
+                      >
+                        PARSE
+                      </button>
+                      <button
+                        id="btn-clear-pane"
+                        type="button"
+                        onClick={handleClearRawPane}
+                        className="w-full text-center py-2 bg-slate-100 text-slate-600 font-bold border border-slate-200 text-[11px] rounded hover:bg-slate-200 transition cursor-pointer"
+                      >
+                        CLEAR
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* BRANCH DIRECTORY LOOKUP CARD */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col">
+                    <div className="pb-2.5 border-b border-slate-100 mb-3 flex items-center space-x-2">
+                      <Building2 className="h-4 w-4 text-sky-500" />
+                      <h4 className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">
+                        BRANCH LOOKUP
+                      </h4>
+                    </div>
+                    
+                    <div className="relative mb-2 shrink-0">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-slate-400">
+                        <Search className="h-3.5 w-3.5" />
+                      </span>
+                      <input
+                        id="branch-search-input"
+                        type="text"
+                        placeholder="Search branch code or name..."
+                        value={branchSearchTerm}
+                        onChange={(e) => setBranchSearchTerm(e.target.value)}
+                        className="w-full pl-8 pr-16 py-1.5 bg-[#f5f5f7] border border-[#e8e8ed] text-xs rounded-md focus:border-sky-500 focus:bg-white focus:outline-none transition-all font-sans text-slate-900 placeholder-slate-400"
+                      />
+                      {branchSearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setBranchSearchTerm("")}
+                          className="absolute inset-y-0 right-2 flex items-center text-[10px] text-slate-400 hover:text-slate-650 font-semibold cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* RESULTS AREA */}
+                    <div className="max-h-[120px] overflow-y-auto space-y-1.5 pr-1 font-sans">
+                      {(() => {
+                        const cleanQuery = branchSearchTerm.trim().toLowerCase();
+                        if (!cleanQuery) {
+                          return (
+                            <div className="text-[10px] text-slate-400 text-center py-2">
+                              Enter branch code or name to look up
+                            </div>
+                          );
+                        }
+                        const filtered = BRANCH_LIST.filter(b => 
+                          b.code.includes(cleanQuery) || 
+                          b.name.toLowerCase().includes(cleanQuery)
+                        ).slice(0, 15);
+                        
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="text-[10px] text-red-500 text-center py-2 font-semibold">
+                              No matching branch found
+                            </div>
+                          );
+                        }
+                        
+                        return filtered.map((b, idx) => (
+                          <div 
+                            key={`${b.code}-${idx}`}
+                            className="flex items-center justify-between p-1.5 rounded bg-slate-50 border border-slate-100 hover:bg-sky-50/40 hover:border-sky-100 transition-all text-[11px]"
+                          >
+                            <div className="flex items-center space-x-1.5 truncate">
+                              <span className="px-1 py-0.2 bg-sky-100 text-sky-800 rounded text-[8px] font-mono font-bold">
+                                {b.code}
+                              </span>
+                              <span className="font-semibold text-slate-700 truncate uppercase text-[10px]">
+                                {b.name}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(b.name, `Branch ${b.name}`)}
+                              className="text-[9px] text-sky-600 hover:text-sky-850 font-bold px-1.5 py-0.5 rounded hover:bg-sky-100 cursor-pointer flex items-center space-x-0.5 shrink-0"
+                            >
+                              <Copy className="h-2.5 w-2.5" />
+                              <span>Copy</span>
+                            </button>
+                          </div>
+                        ));
+                      })()}
+                    </div>
                   </div>
                 </div>
 
 
-                {/* COLUMN 2 (4 cols Span) - SYSTEM METADATA & BRANCH SECTIONS */}
-                <div className="flex flex-col lg:col-span-4 space-y-4 lg:min-h-[460px]">
+                {/* COLUMN 2 (4 cols Span) - SYSTEM METADATA (FLAT / NO SCROLLBAR) */}
+                <div className="flex flex-col lg:col-span-4 space-y-4">
                   {/* SYSTEM METADATA AUTOMATED VIEW (READONLY) */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col flex-1">
+                  <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col h-full">
                     <div className="pb-2.5 border-b border-slate-100 mb-3 flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <Activity className="h-4 w-4 text-blue-500" />
@@ -2370,13 +2789,13 @@ export default function App() {
                       </div>
                       {caseMode === "UPDATE" && (
                         <span className="text-[9px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-bold uppercase">
-                          Case Selection Pending
+                          Case Pending
                         </span>
                       )}
                     </div>
 
                     {/* ONLY EDITABLE ARE CIF (with copy feature) and AMOUNT */}
-                    <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="space-y-3 mb-3">
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">CIF Number / User ID</label>
                         <div className="relative">
@@ -2415,478 +2834,398 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex-1 space-y-2.5 text-xs overflow-y-auto max-h-[220px]">
+                    {/* Parsed FMS Fields section - Flat styled layout without scroll and fixed height limitation */}
+                    <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-2 text-xs flex-grow">
                       <h5 className="font-bold text-[10px] uppercase tracking-wider text-slate-400 font-mono pb-1 border-b border-slate-200">
                         Parsed FMS Fields (Read-Only)
                       </h5>
                       
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <span className="block text-[9px] uppercase font-bold text-slate-400">Event Type:</span>
-                          <span className="font-medium text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate">{caseEventType}</span>
+                          <span className="block text-[8px] uppercase font-bold text-slate-400">Event Type:</span>
+                          <span className="font-medium text-slate-850 text-[10px] block font-mono bg-white px-1.5 py-0.5 rounded border border-slate-100 truncate">{caseEventType}</span>
                         </div>
                         <div>
-                          <span className="block text-[9px] uppercase font-bold text-slate-400">Risk Score:</span>
-                          <span className="font-mono font-bold text-[11px] block text-red-600 bg-white px-2 py-0.5 rounded border border-slate-100">{caseRiskScore}</span>
+                          <span className="block text-[8px] uppercase font-bold text-slate-400">Risk Score:</span>
+                          <span className="font-mono font-bold text-[10px] block text-red-600 bg-white px-1.5 py-0.5 rounded border border-slate-100">{caseRiskScore}</span>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <span className="block text-[9px] uppercase font-bold text-slate-400">Mode / Channel:</span>
-                          <span className="font-medium text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate">{caseModeChannel}</span>
+                          <span className="block text-[8px] uppercase font-bold text-slate-400">Mode / Channel:</span>
+                          <span className="font-medium text-slate-850 text-[10px] block font-mono bg-white px-1.5 py-0.5 rounded border border-slate-100 truncate">{caseModeChannel}</span>
                         </div>
                         <div>
-                          <span className="block text-[9px] uppercase font-bold text-slate-400">Rule ID:</span>
-                          <span className="font-semibold text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate">{caseRuleId}</span>
+                          <span className="block text-[8px] uppercase font-bold text-slate-400">Rule ID:</span>
+                          <span className="font-semibold text-slate-850 text-[10px] block font-mono bg-white px-1.5 py-0.5 rounded border border-slate-100 truncate">{caseRuleId}</span>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <span className="block text-[9px] uppercase font-bold text-slate-400">FMS Case Status:</span>
-                          <span className="font-bold text-[10px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100 truncate text-amber-600">{caseFmsStatus}</span>
+                          <span className="block text-[8px] uppercase font-bold text-slate-400">FMS Status:</span>
+                          <span className="font-bold text-[9px] block font-mono bg-white px-1.5 py-0.5 rounded border border-slate-100 truncate text-amber-600">{caseFmsStatus}</span>
                         </div>
                         <div>
-                          <span className="block text-[9px] uppercase font-bold text-slate-400">Assigned Officer:</span>
-                          <span className="font-semibold text-slate-800 text-[11px] block font-mono bg-white px-2 py-0.5 rounded border border-slate-100">{currentOfficer.psid}</span>
+                          <span className="block text-[8px] uppercase font-bold text-slate-400">Officer:</span>
+                          <span className="font-semibold text-slate-855 text-[10px] block font-mono bg-white px-1.5 py-0.5 rounded border border-slate-100 truncate">{currentOfficer.psid}</span>
                         </div>
                       </div>
 
                       <div>
-                        <span className="block text-[9px] uppercase font-bold text-slate-400">Policy Action:</span>
-                        <span className="font-semibold text-xs block font-mono text-red-700 bg-white px-2 py-0.5 rounded border border-slate-100">{casePolicyAction}</span>
+                        <span className="block text-[8px] uppercase font-bold text-slate-400">Policy Action:</span>
+                        <span className="font-semibold text-[11px] block font-mono text-red-750 bg-white px-1.5 py-0.5 rounded border border-slate-100 truncate">{casePolicyAction}</span>
                       </div>
 
-                      <div>
-                        <span className="block text-[9px] uppercase font-bold text-slate-400">Case Created Time:</span>
-                        <span className="font-mono text-[10px] text-slate-600 block bg-white px-2 py-0.5 rounded border border-slate-100">{caseCreatedTime || "-"}</span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <span className="block text-[8px] uppercase font-bold text-slate-400">Created:</span>
+                          <span className="font-mono text-[9px] text-slate-600 block bg-white px-1.5 py-0.5 rounded border border-slate-100 truncate">{caseCreatedTime || "-"}</span>
+                        </div>
+                        <div>
+                          <span className="block text-[8px] uppercase font-bold text-slate-400">Assigned:</span>
+                          <span className="font-mono text-[9px] text-slate-600 block bg-white px-1.5 py-0.5 rounded border border-slate-100 truncate">{caseAssignedTime || "-"}</span>
+                        </div>
                       </div>
-
-                      <div>
-                        <span className="block text-[9px] uppercase font-bold text-slate-400">Case Assigned Time:</span>
-                        <span className="font-mono text-[10px] text-slate-600 block bg-white px-2 py-0.5 rounded border border-slate-100">{caseAssignedTime || "-"}</span>
-                      </div>
-
                     </div>
 
-                    <div className="mt-3 pt-2 text-[10px] text-slate-400 text-center font-mono uppercase bg-slate-50 rounded border border-slate-100 py-1 shrink-0">
-                      Ingestion Status: <strong className="text-slate-600">{ingestStatus}</strong>
-                    </div>
-                  </div>
-
-                  {/* BRANCH DIRECTORY LOOKUP CARD */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col shrink-0">
-                    <div className="pb-2.5 border-b border-slate-100 mb-3 flex items-center space-x-2">
-                      <Building2 className="h-4 w-4 text-sky-500" />
-                      <h4 className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">
-                        BRANCH DIRECTORY LOOKUP
-                      </h4>
-                    </div>
-                    
-                    <div className="relative mb-2 shrink-0">
-                      <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-slate-400">
-                        <Search className="h-3.5 w-3.5" />
-                      </span>
-                      <input
-                        id="branch-search-input"
-                        type="text"
-                        placeholder="Search branch code or name..."
-                        value={branchSearchTerm}
-                        onChange={(e) => setBranchSearchTerm(e.target.value)}
-                        className="w-full pl-8 pr-16 py-1.5 bg-[#f5f5f7] border border-[#e8e8ed] text-xs rounded-md focus:border-sky-500 focus:bg-white focus:outline-none transition-all font-sans text-slate-900 placeholder-slate-400"
-                      />
-                      {branchSearchTerm && (
-                        <button
-                          type="button"
-                          onClick={() => setBranchSearchTerm("")}
-                          className="absolute inset-y-0 right-2 flex items-center text-[10px] text-slate-400 hover:text-slate-600 font-semibold cursor-pointer"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                    
-                    {/* RESULTS AREA */}
-                    <div className="max-h-[140px] overflow-y-auto space-y-1.5 pr-1 font-sans">
-                      {(() => {
-                        const cleanQuery = branchSearchTerm.trim().toLowerCase();
-                        if (!cleanQuery) {
-                          return (
-                            <div className="text-[10px] text-slate-400 text-center py-2">
-                              Enter branch code or name to look up branch location
-                            </div>
-                          );
-                        }
-                        const filtered = BRANCH_LIST.filter(b => 
-                          b.code.includes(cleanQuery) || 
-                          b.name.toLowerCase().includes(cleanQuery)
-                        ).slice(0, 15);
-                        
-                        if (filtered.length === 0) {
-                          return (
-                            <div className="text-[10px] text-red-500 text-center py-2 font-semibold">
-                              No matching branch found
-                            </div>
-                          );
-                        }
-                        
-                        return filtered.map((b, idx) => (
-                          <div 
-                            key={`${b.code}-${idx}`}
-                            className="flex items-center justify-between p-1.5 rounded bg-slate-50 border border-slate-100 hover:bg-sky-50/40 hover:border-sky-100 transition-all text-[11.5px]"
-                          >
-                            <div className="flex items-center space-x-2 truncate">
-                              <span className="px-1.5 py-0.5 bg-sky-100 text-sky-800 rounded text-[9px] font-mono font-bold">
-                                CODE {b.code}
-                              </span>
-                              <span className="font-semibold text-slate-700 truncate uppercase">
-                                {b.name}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(b.name, `Branch ${b.name}`)}
-                              className="text-[10px] text-sky-600 hover:text-sky-800 font-bold px-1.5 py-0.5 rounded hover:bg-sky-100 cursor-pointer flex items-center space-x-1 shrink-0"
-                              title="Copy branch name"
-                            >
-                              <Copy className="h-3 w-3" />
-                              <span>Copy</span>
-                            </button>
-                          </div>
-                        ));
-                      })()}
+                    <div className="mt-3 pt-1.5 text-[10px] text-slate-400 text-center font-mono uppercase bg-slate-50 rounded border border-slate-100 py-1 shrink-0">
+                      Ingestion: <strong className="text-slate-650">{ingestStatus}</strong>
                     </div>
                   </div>
                 </div>
 
 
-                {/* COLUMN 3 (5 cols Span) - RESOLUTION & CONDITIONAL FORMATTED PRESETS */}
-                <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col lg:col-span-5 min-h-[460px]">
-                  <div className="pb-2.5 border-b border-slate-100 mb-3 flex items-center justify-between">
+                {/* COLUMN 3 (4 cols Span) - RESOLUTION & CONDITIONAL FORMATTED PRESETS */}
+                <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col lg:col-span-4 h-full">
+                  <div className="pb-2 border-b border-slate-100 mb-2 flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <PhoneCall className="h-4 w-4 text-emerald-500" />
                       <h4 className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">VERIFICATION WORKFLOW</h4>
                     </div>
-                    <span className="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-mono font-bold uppercase">Compact view</span>
+                    <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.2 rounded font-mono font-bold uppercase">Consolidated</span>
                   </div>
 
-                  {/* PRESET INTEGRATED DROPDOWN */}
-                  <div className="mb-3">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
-                      FMS Call & Resolution Presets
-                    </label>
-                    <select
-                      id="fms-preset-select"
-                      value={selectedPreset}
-                      onChange={(e) => handlePresetSelect(e.target.value)}
-                      className="w-full text-xs font-semibold px-2 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-emerald-500 bg-emerald-50/20 text-slate-800"
-                    >
-                      <option value="">Select Preset (populates Response, Status, Remarks)...</option>
-                      {PRESET_OPTIONS.map((opt) => (
-                        <option key={opt.id} value={opt.id}>
-                          {opt.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* READONLY AUTOLOAD FIELDS BASED ON OPTION (but can be manually filled) */}
-                  <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div className="space-y-3 flex flex-col h-full justify-between">
+                    {/* PRESET INTEGRATED DROPDOWN */}
                     <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase">Call Response</label>
-                      <input
-                        id="call-response"
-                        type="text"
-                        value={callResponse}
-                        onChange={(e) => setCallResponse(e.target.value)}
-                        placeholder="e.g. In Progress"
-                        className="w-full px-2 py-1.5 border border-slate-200 bg-slate-100/50 rounded text-slate-800 text-xs font-semibold focus:outline-none"
-                      />
+                      <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1 font-mono">
+                        FMS Call & Resolution Presets
+                      </label>
+                      <select
+                        id="fms-preset-select"
+                        value={selectedPreset}
+                        onChange={(e) => handlePresetSelect(e.target.value)}
+                        className="w-full text-xs font-semibold px-2 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-emerald-500 bg-emerald-5/20 text-slate-800"
+                      >
+                        <option value="">Select Preset (populates fields)...</option>
+                        {PRESET_OPTIONS.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase">Resolution</label>
-                      <input
-                        id="call-resolution"
-                        type="text"
-                        value={resolution}
-                        onChange={(e) => setResolution(e.target.value)}
-                        placeholder="e.g. Suspected"
-                        className="w-full px-2 py-1.5 border border-slate-200 bg-slate-100/50 rounded text-slate-800 text-xs font-semibold focus:outline-none"
-                      />
-                    </div>
-                  </div>
 
-                  {/* ACTIVE CONDITIONAL FORMATTING WORKFLOW DIAGNOSTIC BADGE */}
-                  <div className={`mb-3 p-2.5 rounded-lg border flex items-center space-x-2.5 transition-all duration-300 ${resStyle.bg}`}>
-                    <div className="shadow-xs bg-white p-1.5 rounded-md flex items-center justify-center border border-slate-100">
-                      {getResolutionIcon(resStyle.icon)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[8px] tracking-wider font-mono uppercase font-black opacity-60">Status Validation</span>
-                        <span className="text-[8px] bg-slate-900/10 font-bold px-1.5 py-0.2 rounded font-mono truncate uppercase">Real-Time</span>
+                    {/* READONLY AUTOLOAD FIELDS BASED ON OPTION (but can be manually filled) */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[8px] font-bold text-slate-400 uppercase">Call Response</label>
+                        <input
+                          id="call-response"
+                          type="text"
+                          value={callResponse}
+                          onChange={(e) => setCallResponse(e.target.value)}
+                          placeholder="e.g. In Progress"
+                          className="w-full px-2 py-1.5 border border-slate-200 bg-slate-100/50 rounded text-slate-800 text-xs font-semibold focus:outline-none"
+                        />
                       </div>
-                      <span className="block font-sans font-bold text-[11px] truncate leading-tight mt-0.5">{resStyle.label}</span>
-                      <p className="text-[9px] font-medium opacity-80 truncate leading-tight mt-0.5">{resStyle.desc}</p>
-                    </div>
-                  </div>
-
-                  {/* TIMELINE HISTORY CALL TRIGGERS: 1st, 2nd, 3rd calls */}
-                  <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 mb-2 space-y-2">
-                    <span className="block text-[9px] uppercase font-bold text-slate-400 font-mono tracking-wider">
-                      Call Attempt History Logs
-                    </span>
-
-                    {caseMode === "CREATE" ? (
-                      /* Create Mode: Standard Log fields */
-                      <div className="space-y-1.5">
-                        <div className="flex items-center space-x-1">
-                          <span className="text-[9px] font-bold text-slate-400 w-11">1st Call:</span>
-                          <button
-                            type="button"
-                            onClick={() => handleSetCurrentTimestamp(1)}
-                            className="bg-slate-200 hover:bg-slate-300 p-1 rounded hover:text-blue-600 transition"
-                            title="Set current time"
-                          >
-                            <Clock className="h-3.5 w-3.5" />
-                          </button>
-                          <input
-                            id="field-call-1-time"
-                            type="text"
-                            placeholder="Timestamp (automatic)"
-                            value={firstCallTime}
-                            onChange={(e) => setFirstCallTime(e.target.value)}
-                            className="flex-1 px-1.5 py-0.5 border border-slate-200 bg-white rounded font-mono text-[10px]"
-                          />
-                          <input
-                            type="text"
-                            placeholder="1st attempt specific notes..."
-                            value={firstCallRemarks}
-                            onChange={(e) => setFirstCallRemarks(e.target.value)}
-                            className="w-32 px-1.5 py-0.5 border border-slate-200 bg-white rounded text-[10px]"
-                          />
-                        </div>
-
-                        <div className="flex items-center space-x-1">
-                          <span className="text-[9px] font-bold text-slate-400 w-11">2nd Call:</span>
-                          <button
-                            type="button"
-                            onClick={() => handleSetCurrentTimestamp(2)}
-                            className="bg-slate-200 hover:bg-slate-300 p-1 rounded hover:text-blue-600 transition"
-                            title="Set current time"
-                          >
-                            <Clock className="h-3.5 w-3.5" />
-                          </button>
-                          <input
-                            id="field-call-2-time"
-                            type="text"
-                            placeholder="Timestamp"
-                            value={secondCallTime}
-                            onChange={(e) => setSecondCallTime(e.target.value)}
-                            className="flex-1 px-1.5 py-0.5 border border-slate-200 bg-white rounded font-mono text-[10px]"
-                          />
-                          <input
-                            type="text"
-                            placeholder="2nd attempt specific notes..."
-                            value={secondCallRemarks}
-                            onChange={(e) => setSecondCallRemarks(e.target.value)}
-                            className="w-32 px-1.5 py-0.5 border border-slate-200 bg-white rounded text-[10px]"
-                          />
-                        </div>
-
-                        <div className="flex items-center space-x-1">
-                          <span className="text-[9px] font-bold text-slate-400 w-11">3rd Call:</span>
-                          <button
-                            type="button"
-                            onClick={() => handleSetCurrentTimestamp(3)}
-                            className="bg-slate-200 hover:bg-slate-300 p-1 rounded hover:text-blue-600 transition"
-                            title="Set current time"
-                          >
-                            <Clock className="h-3.5 w-3.5" />
-                          </button>
-                          <input
-                            id="field-call-3-time"
-                            type="text"
-                            placeholder="Timestamp"
-                            value={thirdCallTime}
-                            onChange={(e) => setThirdCallTime(e.target.value)}
-                            className="flex-1 px-1.5 py-0.5 border border-slate-200 bg-white rounded font-mono text-[10px]"
-                          />
-                          <input
-                            type="text"
-                            placeholder="3rd attempt specific notes..."
-                            value={thirdCallRemarks}
-                            onChange={(e) => setThirdCallRemarks(e.target.value)}
-                            className="w-32 px-1.5 py-0.5 border border-slate-200 bg-white rounded text-[10px]"
-                          />
-                        </div>
+                      <div>
+                        <label className="block text-[8px] font-bold text-slate-400 uppercase">Resolution</label>
+                        <input
+                          id="call-resolution"
+                          type="text"
+                          value={resolution}
+                          onChange={(e) => setResolution(e.target.value)}
+                          placeholder="e.g. Suspected"
+                          className="w-full px-2 py-1.5 border border-slate-200 bg-slate-100/50 rounded text-slate-800 text-xs font-semibold focus:outline-none"
+                        />
                       </div>
-                    ) : (
-                      /* Update Mode: Side-by-side Remarks table */
-                      <div className="space-y-1.5">
-                        <div className="grid grid-cols-12 gap-1 items-center">
-                          <div className="col-span-5 flex items-center space-x-1">
-                            <span className="text-[9px] font-bold text-slate-500 w-6">1st:</span>
+                    </div>
+
+                    {/* ACTIVE CONDITIONAL FORMATTING WORKFLOW DIAGNOSTIC BADGE */}
+                    <div className={`p-2.5 rounded-lg border flex items-center space-x-2.5 transition-all duration-300 ${resStyle.bg}`}>
+                      <div className="shadow-xs bg-white p-1 rounded-md flex items-center justify-center border border-slate-100 text-slate-700 shrink-0">
+                        {getResolutionIcon(resStyle.icon)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[8px] tracking-wider font-mono uppercase font-black opacity-60">Status Validation</span>
+                          <span className="text-[8px] bg-slate-900/10 font-bold px-1.5 py-0.2 rounded font-mono truncate uppercase">Real-Time</span>
+                        </div>
+                        <span className="block font-sans font-bold text-[10.5px] truncate leading-tight mt-0.5 text-slate-800">{resStyle.label}</span>
+                        <p className="text-[9px] font-medium opacity-80 truncate leading-tight mt-0.5">{resStyle.desc}</p>
+                      </div>
+                    </div>
+
+                    {/* TIMELINE HISTORY CALL TRIGGERS: 1st, 2nd, 3rd calls */}
+                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 space-y-1.5">
+                      <span className="block text-[9px] uppercase font-bold text-slate-400 font-mono tracking-wider">
+                        Call Attempt History Logs
+                      </span>
+
+                      {caseMode === "CREATE" ? (
+                        /* Create Mode: Standard Log fields */
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-1">
+                            <span className="text-[9px] font-bold text-slate-400 w-11 shrink-0">1st Call:</span>
                             <button
                               type="button"
                               onClick={() => handleSetCurrentTimestamp(1)}
-                              className="bg-slate-200 p-1 rounded hover:bg-slate-300 text-blue-600 shrink-0"
+                              className="bg-slate-200 hover:bg-slate-300 p-0.5 rounded hover:text-blue-600 transition shrink-0"
+                              title="Set current time"
                             >
-                              <Clock className="h-3.5 w-3.5" />
+                              <Clock className="h-3 w-3" />
                             </button>
                             <input
+                              id="field-call-1-time"
                               type="text"
                               placeholder="Timestamp"
                               value={firstCallTime}
                               onChange={(e) => setFirstCallTime(e.target.value)}
-                              className="w-full px-1 py-0.5 border border-slate-200 bg-white rounded font-mono text-[10px]"
+                              className="flex-1 min-w-0 px-1 py-0.5 border border-slate-200 bg-white rounded font-mono text-[9px]"
                             />
-                          </div>
-                          <div className="col-span-7">
                             <input
                               type="text"
-                              placeholder="Remarks side-by-side 1st Call"
+                              placeholder="Notes"
                               value={firstCallRemarks}
                               onChange={(e) => setFirstCallRemarks(e.target.value)}
-                              className="w-full px-1.5 py-0.5 border border-slate-200 bg-amber-50 rounded text-[10px] italic font-semibold"
+                              className="w-24 px-1 py-0.5 border border-slate-200 bg-white rounded text-[9px]"
                             />
                           </div>
-                        </div>
 
-                        <div className="grid grid-cols-12 gap-1 items-center">
-                          <div className="col-span-5 flex items-center space-x-1">
-                            <span className="text-[9px] font-bold text-slate-500 w-6">2nd:</span>
+                          <div className="flex items-center space-x-1">
+                            <span className="text-[9px] font-bold text-slate-400 w-11 shrink-0">2nd Call:</span>
                             <button
                               type="button"
                               onClick={() => handleSetCurrentTimestamp(2)}
-                              className="bg-slate-200 p-1 rounded hover:bg-slate-300 text-blue-600 shrink-0"
+                              className="bg-slate-200 hover:bg-slate-300 p-0.5 rounded hover:text-blue-600 transition shrink-0"
+                              title="Set current time"
                             >
-                              <Clock className="h-3.5 w-3.5" />
+                              <Clock className="h-3 w-3" />
                             </button>
                             <input
+                              id="field-call-2-time"
                               type="text"
+                              placeholder="Timestamp"
                               value={secondCallTime}
                               onChange={(e) => setSecondCallTime(e.target.value)}
-                              placeholder="Timestamp"
-                              className="w-full px-1 py-0.5 border border-slate-200 bg-white rounded font-mono text-[10px]"
+                              className="flex-1 min-w-0 px-1 py-0.5 border border-slate-200 bg-white rounded font-mono text-[9px]"
                             />
-                          </div>
-                          <div className="col-span-7">
                             <input
                               type="text"
-                              placeholder="Remarks side-by-side 2nd Call"
+                              placeholder="Notes"
                               value={secondCallRemarks}
                               onChange={(e) => setSecondCallRemarks(e.target.value)}
-                              className="w-full px-1.5 py-0.5 border border-slate-200 bg-amber-50 rounded text-[10px] italic font-semibold"
+                              className="w-24 px-1 py-0.5 border border-slate-200 bg-white rounded text-[9px]"
                             />
                           </div>
-                        </div>
 
-                        <div className="grid grid-cols-12 gap-1 items-center">
-                          <div className="col-span-5 flex items-center space-x-1">
-                            <span className="text-[9px] font-bold text-slate-500 w-6">3rd:</span>
+                          <div className="flex items-center space-x-1">
+                            <span className="text-[9px] font-bold text-slate-400 w-11 shrink-0">3rd Call:</span>
                             <button
                               type="button"
                               onClick={() => handleSetCurrentTimestamp(3)}
-                              className="bg-slate-200 p-1 rounded hover:bg-slate-300 text-blue-600 shrink-0"
+                              className="bg-slate-200 hover:bg-slate-300 p-0.5 rounded hover:text-blue-600 transition shrink-0"
+                              title="Set current time"
                             >
-                              <Clock className="h-3.5 w-3.5" />
+                              <Clock className="h-3 w-3" />
                             </button>
                             <input
+                              id="field-call-3-time"
                               type="text"
                               placeholder="Timestamp"
                               value={thirdCallTime}
                               onChange={(e) => setThirdCallTime(e.target.value)}
-                              className="w-full px-1 py-0.5 border border-slate-200 bg-white rounded font-mono text-[10px]"
+                              className="flex-1 min-w-0 px-1 py-0.5 border border-slate-200 bg-white rounded font-mono text-[9px]"
                             />
-                          </div>
-                          <div className="col-span-7">
                             <input
                               type="text"
-                              placeholder="Remarks side-by-side 3rd Call"
+                              placeholder="Notes"
                               value={thirdCallRemarks}
                               onChange={(e) => setThirdCallRemarks(e.target.value)}
-                              className="w-full px-1.5 py-0.5 border border-slate-200 bg-amber-50 rounded text-[10px] italic font-semibold"
+                              className="w-24 px-1 py-0.5 border border-slate-200 bg-white rounded text-[9px]"
                             />
                           </div>
                         </div>
+                      ) : (
+                        /* Update Mode: Side-by-side Remarks table */
+                        <div className="space-y-1">
+                          <div className="grid grid-cols-12 gap-1 items-center">
+                            <div className="col-span-4 flex items-center space-x-0.5">
+                              <span className="text-[9px] font-bold text-slate-500 w-5 shrink-0">1st:</span>
+                              <button
+                                type="button"
+                                onClick={() => handleSetCurrentTimestamp(1)}
+                                className="bg-slate-200 p-0.5 rounded hover:bg-slate-300 text-blue-600 shrink-0"
+                              >
+                                <Clock className="h-3 w-3" />
+                              </button>
+                              <input
+                                type="text"
+                                placeholder="Time"
+                                value={firstCallTime}
+                                onChange={(e) => setFirstCallTime(e.target.value)}
+                                className="w-full px-0.5 py-0.5 border border-slate-200 bg-white rounded font-mono text-[9px]"
+                              />
+                            </div>
+                            <div className="col-span-8">
+                              <input
+                                type="text"
+                                placeholder="Remarks 1s Call"
+                                value={firstCallRemarks}
+                                onChange={(e) => setFirstCallRemarks(e.target.value)}
+                                className="w-full px-1 py-0.5 border border-slate-200 bg-amber-50 rounded text-[9px] italic font-semibold"
+                              />
+                            </div>
+                          </div>
 
+                          <div className="grid grid-cols-12 gap-1 items-center">
+                            <div className="col-span-4 flex items-center space-x-0.5">
+                              <span className="text-[9px] font-bold text-slate-500 w-5 shrink-0">2nd:</span>
+                              <button
+                                type="button"
+                                onClick={() => handleSetCurrentTimestamp(2)}
+                                className="bg-slate-200 p-0.5 rounded hover:bg-slate-300 text-blue-600 shrink-0"
+                              >
+                                <Clock className="h-3 w-3" />
+                              </button>
+                              <input
+                                type="text"
+                                value={secondCallTime}
+                                onChange={(e) => setSecondCallTime(e.target.value)}
+                                placeholder="Time"
+                                className="w-full px-0.5 py-0.5 border border-slate-200 bg-white rounded font-mono text-[9px]"
+                              />
+                            </div>
+                            <div className="col-span-8">
+                              <input
+                                type="text"
+                                placeholder="Remarks 2nd Call"
+                                value={secondCallRemarks}
+                                onChange={(e) => setSecondCallRemarks(e.target.value)}
+                                className="w-full px-1 py-0.5 border border-slate-200 bg-amber-50 rounded text-[9px] italic font-semibold"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-12 gap-1 items-center">
+                            <div className="col-span-4 flex items-center space-x-0.5">
+                              <span className="text-[9px] font-bold text-slate-500 w-5 shrink-0">3rd:</span>
+                              <button
+                                type="button"
+                                onClick={() => handleSetCurrentTimestamp(3)}
+                                className="bg-slate-200 p-0.5 rounded hover:bg-slate-300 text-blue-600 shrink-0"
+                              >
+                                <Clock className="h-3 w-3" />
+                              </button>
+                              <input
+                                type="text"
+                                placeholder="Time"
+                                value={thirdCallTime}
+                                onChange={(e) => setThirdCallTime(e.target.value)}
+                                className="w-full px-0.5 py-0.5 border border-slate-200 bg-white rounded font-mono text-[9px]"
+                              />
+                            </div>
+                            <div className="col-span-8">
+                              <input
+                                type="text"
+                                placeholder="Remarks 3rd Call"
+                                value={thirdCallRemarks}
+                                onChange={(e) => setThirdCallRemarks(e.target.value)}
+                                className="w-full px-1 py-0.5 border border-slate-200 bg-amber-50 rounded text-[9px] italic font-semibold"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* EDITABLE REMARKS TEXT AREA - RESTRICTED TO EXACTLY 3 LINES TALL DEFAULT */}
+                    <div className="flex flex-col">
+                      <div className="flex justify-between items-center mb-0.5">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block font-mono">
+                          Compiled Remarks
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(remarks, "Remarks compilation")}
+                          className="text-[9px] text-blue-600 hover:text-blue-800 font-bold flex items-center space-x-0.5 cursor-pointer"
+                        >
+                          <Copy className="h-2.5 w-2.5" />
+                          <span>Copy</span>
+                        </button>
                       </div>
-                    )}
-                  </div>
 
-                  {/* EDITABLE REMARKS TEXT AREA & QUICK ACTION CONTROLS */}
-                  <div className="flex-1 flex flex-col min-h-[140px]">
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">
-                        Compiled Audit Remarks (Editable)
-                      </label>
+                      <textarea
+                        id="remarks-textarea"
+                        value={remarks}
+                        onChange={(e) => setRemarks(e.target.value)}
+                        placeholder="Remarks compilation (3 lines only)..."
+                        rows={3}
+                        className="w-full p-1.5 border border-slate-300 rounded text-xs leading-relaxed focus:outline-none focus:border-emerald-500 bg-white resize-none h-[64px]"
+                      />
+                    </div>
+
+                    {/* STATUS ACTION & ESCALATION */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[8px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">FMS Status Action</label>
+                        <select 
+                          value={statusAction}
+                          onChange={(e) => setStatusAction(e.target.value)}
+                          className="w-full px-1.5 py-1 text-[11px] border border-slate-200 rounded focus:outline-none bg-white"
+                        >
+                          <option value="No status change...">No status change...</option>
+                          <option value="LOCKED">LOCKED</option>
+                          <option value="UNLOCKED">UNLOCKED</option>
+                          <option value="PERMANENT BLOCK">PERMANENT BLOCK</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[8px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">Escalate Team</label>
+                        <select
+                          value={escalateTeam}
+                          onChange={(e) => setEscalateTeam(e.target.value)}
+                          className="w-full px-1.5 py-1 text-[11px] border border-slate-200 rounded focus:outline-none bg-white"
+                        >
+                          <option value="No / Local Agent Only">No / Local Agent Only</option>
+                          <option value="FRAUD OPS SQUAD">Fraud Ops Squad</option>
+                          <option value="MANAGEMENT ESCALATE">Management Escalation</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* ACTIONS */}
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
                       <button
-                        type="button"
-                        onClick={() => handleCopy(remarks, "Remarks compilation")}
-                        className="text-[9px] text-blue-600 hover:text-blue-800 font-bold flex items-center space-x-1"
+                        id="btn-commit-case"
+                        type="submit"
+                        className="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-500 text-white font-bold text-[11px] rounded hover:from-emerald-700 hover:to-teal-600 transition shadow-xs cursor-pointer"
                       >
-                        <Copy className="h-3 w-3" />
-                        <span>Copy Remarks</span>
+                        {caseMode === "CREATE" ? "COMMIT ENTRY" : "COMMIT UPDATE"}
+                      </button>
+                      <button
+                        id="btn-reset-form"
+                        type="button"
+                        onClick={handleResetUI}
+                        className="w-full py-2 bg-slate-100 text-slate-600 font-bold text-[11px] rounded hover:bg-slate-200 transition border border-slate-200"
+                      >
+                        RESET UI
                       </button>
                     </div>
-
-                    <textarea
-                      id="remarks-textarea"
-                      value={remarks}
-                      onChange={(e) => setRemarks(e.target.value)}
-                      placeholder="Detailed sequential logs list..."
-                      className="w-full p-2 border border-slate-300 rounded text-xs leading-relaxed focus:outline-none focus:border-emerald-500 flex-1 bg-white resize-none h-24"
-                    />
                   </div>
-
-                  <div className="grid grid-cols-2 gap-2 mt-3 mb-2">
-                    <div>
-                      <label className="block text-[8px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">FMS Status Action</label>
-                      <select 
-                        value={statusAction}
-                        onChange={(e) => setStatusAction(e.target.value)}
-                        className="w-full px-1.5 py-1 text-[11px] border border-slate-200 rounded focus:outline-none"
-                      >
-                        <option value="No status change...">No status change...</option>
-                        <option value="LOCKED">LOCKED</option>
-                        <option value="UNLOCKED">UNLOCKED</option>
-                        <option value="PERMANENT BLOCK">PERMANENT BLOCK</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[8px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">Escalate Team</label>
-                      <select
-                        value={escalateTeam}
-                        onChange={(e) => setEscalateTeam(e.target.value)}
-                        className="w-full px-1.5 py-1 text-[11px] border border-slate-200 rounded focus:outline-none"
-                      >
-                        <option value="No / Local Agent Only">No / Local Agent Only</option>
-                        <option value="FRAUD OPS SQUAD">Fraud Ops Squad</option>
-                        <option value="MANAGEMENT ESCALATE">Management Escalation</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-slate-100 mt-auto">
-                    <button
-                      id="btn-commit-case"
-                      type="submit"
-                      className="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-500 text-white font-bold text-[11px] rounded hover:from-emerald-700 hover:to-teal-600 transition shadow-xs cursor-pointer"
-                    >
-                      {caseMode === "CREATE" ? "COMMIT CASE ENTRY" : "COMMIT CASE UPDATE"}
-                    </button>
-                    <button
-                      id="btn-reset-form"
-                      type="button"
-                      onClick={handleResetUI}
-                      className="w-full py-2 bg-slate-100 text-slate-600 font-bold text-[11px] rounded hover:bg-slate-200 transition border border-slate-200"
-                    >
-                      RESET UI
-                    </button>
-                  </div>
-
                 </div>
 
               </form>
@@ -2903,6 +3242,44 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="space-y-4"
             >
+              {/* TWO DATABASE DIVISION SECTIONS CONTROLLER */}
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-3xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <span className="text-[9px] uppercase font-extrabold tracking-wider bg-slate-900 text-white px-2 py-0.5 rounded-md">
+                    OPERATIONAL DATABASE REGISTRIES
+                  </span>
+                  <p className="text-[11px] text-slate-500 font-sans mt-1">
+                    Toggle your <b>Personal Queue (Compact)</b> to view your own cases, or access the shared <b>Global Sync Database</b> for records from all compliance officers.
+                  </p>
+                </div>
+                <div className="bg-slate-100 p-0.5 rounded-lg flex items-center border border-slate-200/50 w-full sm:w-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setDbDivision("PERSONAL")}
+                    className={`flex-1 sm:flex-none px-4.5 py-1.5 text-xs font-bold rounded-md transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+                      dbDivision === "PERSONAL"
+                        ? "bg-white text-slate-900 shadow-xs border border-slate-200"
+                        : "text-slate-550 hover:text-slate-800"
+                    }`}
+                  >
+                    <User className="h-3.5 w-3.5" />
+                    <span>Personal Compact</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDbDivision("GLOBAL")}
+                    className={`flex-1 sm:flex-none px-4.5 py-1.5 text-xs font-bold rounded-md transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+                      dbDivision === "GLOBAL"
+                        ? "bg-white text-slate-900 shadow-xs border border-slate-200"
+                        : "text-slate-550 hover:text-slate-800"
+                    }`}
+                  >
+                    <Globe className="h-3.5 w-3.5" />
+                    <span>Global Sync (All Users)</span>
+                  </button>
+                </div>
+              </div>
+
               {/* UPPER SUB ACTION SHEETS */}
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
@@ -3043,13 +3420,29 @@ export default function App() {
                                     <button 
                                       onClick={() => handleLoadCaseForUpdate(cs.cif)}
                                       className="px-2 py-0.5 font-bold bg-blue-50 hover:bg-blue-100 text-blue-600 rounded text-[10px] transition"
+                                      title="Load details into Update Case view"
                                     >
                                       Load
                                     </button>
                                     <button 
-                                      onClick={() => {
+                                      onClick={() => setExpandedFmsCases(prev => ({ ...prev, [cs.id]: !prev[cs.id] }))}
+                                      className={`px-2 py-0.5 font-bold rounded text-[10px] transition ${
+                                        expandedFmsCases[cs.id]
+                                          ? "bg-slate-200 text-slate-700 font-bold"
+                                          : "bg-indigo-50 hover:bg-indigo-100 text-indigo-650"
+                                      }`}
+                                    >
+                                      {expandedFmsCases[cs.id] ? "Hide Details" : "Show Details"}
+                                    </button>
+                                    <button 
+                                      onClick={async () => {
                                         if (confirm(`Erase FMS log of CIF ${cs.cif}?`)) {
-                                          setCases(cases.filter(c => c.id !== cs.id));
+                                          try {
+                                            await deleteDoc(doc(db, "cases", cs.id));
+                                          } catch (error) {
+                                            console.error("Firestore delete error:", error);
+                                            setCases(cases.filter(c => c.id !== cs.id));
+                                          }
                                         }
                                       }}
                                       className="p-1 text-slate-300 hover:text-red-500 rounded transition"
@@ -3059,22 +3452,26 @@ export default function App() {
                                     </button>
                                   </td>
                                 </tr>
-                                {/* Accenting Sequential remarks sub-block for verification proof */}
-                                <tr>
-                                  <td colSpan={7} className="bg-slate-50/50 px-4 py-2 border-b border-slate-100">
-                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-[11px] text-slate-500 gap-2">
-                                      <div className="flex items-center space-x-1">
-                                        <CornerDownRight className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                                        <span className="font-semibold text-slate-600">Verification Remarks:</span>
-                                        <span className="font-mono text-slate-800 ml-1 italic">"{cs.remarks}"</span>
+                                {/* Accenting Sequential remarks sub-block for verification proof - Conditionally rendered */}
+                                {expandedFmsCases[cs.id] && (
+                                  <tr>
+                                    <td colSpan={7} className="bg-slate-50/50 px-4 py-2 border-b border-slate-100">
+                                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-[11px] text-slate-500 gap-2">
+                                        <div className="flex items-center space-x-1">
+                                          <CornerDownRight className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                          <span className="font-semibold text-slate-600">Verification Remarks:</span>
+                                          <span className="font-mono text-slate-900 font-bold ml-1 italic bg-white border border-slate-200 p-1.5 rounded shadow-3xs leading-relaxed max-w-2xl inline-block">
+                                            "{cs.remarks || 'No verification remarks recorded.'}"
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center space-x-1 shrink-0 font-mono text-[10px]">
+                                          <Clock className="h-3 w-3" />
+                                          <span>TAT Status: <strong className="text-slate-700">Committed</strong></span>
+                                        </div>
                                       </div>
-                                      <div className="flex items-center space-x-1 shrink-0 font-mono text-[10px]">
-                                        <Clock className="h-3 w-3" />
-                                        <span>TAT Status: <strong className="text-slate-700">Committed</strong></span>
-                                      </div>
-                                    </div>
-                                  </td>
-                                </tr>
+                                    </td>
+                                  </tr>
+                                )}
                               </React.Fragment>
                             );
                           })}
@@ -3110,6 +3507,7 @@ export default function App() {
                             <th className="px-3 py-2">Classification</th>
                             <th className="px-3 py-2">NSRC DateStamp</th>
                             <th className="px-3 py-2 text-center">Export Protected</th>
+                            <th className="px-3 py-2 text-center">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -3131,31 +3529,50 @@ export default function App() {
                                     <span>Protected Excel</span>
                                   </button>
                                 </td>
-                              </tr>
-                              <tr>
-                                <td colSpan={7} className="bg-slate-50/50 px-4 py-1.5 border-b border-slate-100">
-                                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-[11px] text-slate-500 gap-1.5">
-                                    <div className="flex items-center space-x-1.5 font-mono text-[10px]">
-                                      <Info className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                                      <span className="font-semibold text-slate-500">Classification Details:</span>
-                                      <span className="bg-slate-200 border border-slate-300 text-[10px] px-1.5 py-0.2 rounded font-bold text-slate-700"> {ns.accountBlockingType} </span>
-                                    </div>
-                                    <div className="flex items-center text-[10px] text-slate-600 truncate max-w-lg">
-                                      <strong>Generated Remarks: </strong>&nbsp;<span className="italic"> "{ns.remarks}"</span>
-                                    </div>
-                                    <button
-                                      onClick={() => {
-                                        if (confirm(`Erase NSRC record for "${ns.name}"?`)) {
-                                          setNsrcEntries(nsrcEntries.filter(i => i.id !== ns.id));
-                                        }
-                                      }}
-                                      className="p-1 hover:text-red-500 text-slate-300 transition"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </button>
-                                  </div>
+                                <td className="px-2 py-1.5 text-center">
+                                  <button
+                                    onClick={() => setExpandedNsrcEntries(prev => ({ ...prev, [ns.id]: !prev[ns.id] }))}
+                                    className={`px-2 py-0.5 font-bold rounded text-[10px] transition ${
+                                      expandedNsrcEntries[ns.id]
+                                        ? "bg-slate-200 text-slate-705 font-bold"
+                                        : "bg-indigo-50 hover:bg-indigo-100 text-indigo-650"
+                                    }`}
+                                  >
+                                    {expandedNsrcEntries[ns.id] ? "Hide Details" : "Show Details"}
+                                  </button>
                                 </td>
                               </tr>
+                              {expandedNsrcEntries[ns.id] && (
+                                <tr>
+                                  <td colSpan={8} className="bg-slate-50/50 px-4 py-1.5 border-b border-slate-100">
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-[11px] text-slate-500 gap-1.5">
+                                      <div className="flex items-center space-x-1.5 font-mono text-[10px]">
+                                        <Info className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                                        <span className="font-semibold text-slate-500">Classification Details:</span>
+                                        <span className="bg-slate-200 border border-slate-300 text-[10px] px-1.5 py-0.2 rounded font-bold text-slate-700"> {ns.accountBlockingType} </span>
+                                      </div>
+                                      <div className="flex items-center text-[11px] text-slate-850 truncate max-w-lg">
+                                        <strong>Generated Remarks: </strong>&nbsp;<span className="font-mono text-slate-900 font-bold ml-1 italic bg-white border border-slate-200 p-1.5 rounded shadow-3xs leading-relaxed inline-block"> "{ns.remarks || 'No remarks recorded.'}" </span>
+                                      </div>
+                                      <button
+                                        onClick={async () => {
+                                          if (confirm(`Erase NSRC record for "${ns.name}"?`)) {
+                                            try {
+                                              await deleteDoc(doc(db, "nsrcEntries", ns.id));
+                                            } catch (error) {
+                                              console.error("Firestore delete NSRC error:", error);
+                                              setNsrcEntries(nsrcEntries.filter(i => i.id !== ns.id));
+                                            }
+                                          }
+                                        }}
+                                        className="p-1 hover:text-red-500 text-slate-300 transition"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
                             </React.Fragment>
                           ))}
                         </tbody>
@@ -3172,9 +3589,18 @@ export default function App() {
                       <span className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">SYSTEM SESSIONS CONSOLIDATED LOGIN & LOGOUT REAL-TIME LOGS ({sessionLogs.length})</span>
                     </div>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         if (confirm("Reset audit session history?")) {
-                          setSessionLogs([]);
+                          try {
+                            for (const log of sessionLogs) {
+                              if (log.id) {
+                                await deleteDoc(doc(db, "sessionLogs", log.id));
+                              }
+                            }
+                          } catch (error) {
+                            console.error("Firestore logging deletion error:", error);
+                            setSessionLogs([]);
+                          }
                         }
                       }}
                       className="text-[9px] bg-slate-50 text-slate-500 hover:text-slate-700 border border-slate-200 px-2.5 py-0.5 rounded font-mono uppercase font-bold transition"
@@ -3183,44 +3609,51 @@ export default function App() {
                     </button>
                   </div>
 
-                  {sessionLogs.length === 0 ? (
-                    <div className="p-8 text-center text-slate-400 text-xs">
-                      No session logs captured in active runtime.
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs-700">
-                        <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-bold uppercase text-[9px] tracking-widest">
-                            <th className="px-3 py-2">Timestamp</th>
-                            <th className="px-3 py-2">Officer PSID</th>
-                            <th className="px-3 py-2">Officer Name</th>
-                            <th className="px-3 py-2 text-center">Auth Event Action</th>
-                            <th className="px-3 py-2 text-right">Activity Details</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-                          {sessionLogs.map((log) => (
-                            <tr key={log.id} className="hover:bg-slate-50/50">
-                              <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{log.timestamp}</td>
-                              <td className="px-3 py-2 font-bold text-[#0071e3]">{log.psid}</td>
-                              <td className="px-3 py-2 text-slate-800 uppercase font-sans font-semibold text-xs">{log.name}</td>
-                              <td className="px-3 py-2 text-center">
-                                <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-bold ${
-                                  log.action === "LOGIN" 
-                                    ? "bg-emerald-50 text-emerald-800 border border-emerald-100" 
-                                    : "bg-rose-50 text-rose-800 border border-rose-100"
-                                }`}>
-                                  {log.action}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-slate-600 text-right font-sans">{log.details}</td>
+                  {(() => {
+                    const displayedLogs = sessionLogs.filter(log => {
+                      if (currentUser?.role === "Admin") return true;
+                      return log.action !== "PASSWORD_CHANGE" && log.action !== "PASSWORD_RESET" && log.action !== "USER_REGISTER";
+                    });
+
+                    return displayedLogs.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 text-xs">
+                        No session logs captured in active runtime.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs-700">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-bold uppercase text-[9px] tracking-widest">
+                              <th className="px-3 py-2">Timestamp</th>
+                              <th className="px-3 py-2">Officer PSID</th>
+                              <th className="px-3 py-2">Officer Name</th>
+                              <th className="px-3 py-2 text-center">Auth Event Action</th>
+                              <th className="px-3 py-2 text-right">Activity Details</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                            {displayedLogs.map((log) => (
+                              <tr key={log.id} className="hover:bg-slate-50/50">
+                                <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{log.timestamp}</td>
+                                <td className="px-3 py-2 font-bold text-[#0071e3]">{log.psid}</td>
+                                <td className="px-3 py-2 text-slate-800 uppercase font-sans font-semibold text-xs">{log.name}</td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-bold ${
+                                    log.action === "LOGIN" 
+                                      ? "bg-emerald-50 text-emerald-800 border border-emerald-100" 
+                                      : "bg-rose-50 text-rose-800 border border-rose-100"
+                                  }`}>
+                                    {log.action}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-slate-600 text-right font-sans">{log.details}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
                 </div>
 
               </div>
@@ -3786,7 +4219,7 @@ export default function App() {
                       Root Administrator Authorization Enforced
                     </span>
                     <h2 className="font-sans font-bold text-xl tracking-tight mt-2 text-slate-900">
-                      Faris's Command Registry & Admin Panel
+                      Zaim's Command Registry & Admin Panel (PS101435)
                     </h2>
                     <p className="text-xs text-slate-500 mt-1">
                       Provision authorized compliance officer profiles, reset passwords, and audit login states securely.
@@ -3795,6 +4228,44 @@ export default function App() {
                   <div className="bg-[#f5f5f7] border border-[#e8e8ed] rounded-xl px-4 py-3 sm:text-right">
                     <span className="text-[9px] text-slate-500 block font-semibold uppercase tracking-wider">STAFF ROLES VOLUME</span>
                     <span className="font-sans font-bold text-[#0071e3]">{staffAccounts.length} ACTIVE CONTROLLERS</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* LIVE ACTIVE SESSIONS QUICK SUMMARY */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white border border-[#e8e8ed] rounded-2xl p-4 shadow-3xs flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-sans">Active Concurrency</span>
+                    <h4 className="text-xl font-bold text-slate-900 font-sans flex items-center space-x-1.5">
+                      <span className="h-2.5 w-2.5 bg-emerald-500 rounded-full animate-pulse inline-block" />
+                      <span>{staffAccounts.filter(s => s.isOnline && s.lastActive && (Date.now() - new Date(s.lastActive).getTime() < 45000)).length} Active Session(s)</span>
+                    </h4>
+                  </div>
+                  <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-xl border border-emerald-100 shadow-3xs">
+                    <Activity className="h-4.5 w-4.5 animate-pulse" />
+                  </div>
+                </div>
+
+                <div className="bg-white border border-[#e8e8ed] rounded-2xl p-4 shadow-3xs md:col-span-2 flex items-center justify-between gap-4">
+                  <div className="space-y-1 w-full font-sans">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Currently Authenticated Devices</span>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {(() => {
+                        const onlineUsers = staffAccounts.filter(s => s.isOnline && s.lastActive && (Date.now() - new Date(s.lastActive).getTime() < 45000));
+                        if (onlineUsers.length === 0) {
+                          return (
+                            <span className="text-xs text-slate-400 italic">No active compliance officer sessions currently transmitting heartbeats.</span>
+                          );
+                        }
+                        return onlineUsers.map(u => (
+                          <span key={u.psid} className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-150 uppercase">
+                            <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                            <span>{u.name} ({u.psid})</span>
+                          </span>
+                        ));
+                      })()}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3880,7 +4351,16 @@ export default function App() {
                         Staff Accounts Registry Table
                       </h3>
                     </div>
-                    <span className="text-[9px] bg-red-50 text-red-650 border border-red-100 px-2.5 py-0.5 rounded-full font-bold">AUTHENTICATOR ENFORCED</span>
+                    <div className="flex items-center space-x-1.5 font-sans">
+                      <button
+                        onClick={handleRestoreDefaultAccounts}
+                        className="text-[9px] bg-red-600 hover:bg-red-700 text-white font-bold px-2.5 py-1 rounded-lg transition uppercase cursor-pointer shadow-3xs"
+                        title="Restore default Affin123 passwords for the 5 standard corporate accounts"
+                      >
+                        Restore Core Accounts
+                      </button>
+                      <span className="text-[9px] bg-red-50 text-red-650 border border-red-100 px-2.5 py-0.5 rounded-full font-bold">AUTHENTICATOR ENFORCED</span>
+                    </div>
                   </div>
 
                   <div className="overflow-x-auto">
@@ -3890,6 +4370,8 @@ export default function App() {
                           <th className="px-3 py-2.5">PSID</th>
                           <th className="px-3 py-2.5">Officer Name</th>
                           <th className="px-3 py-2.5">Workspace Role</th>
+                          <th className="px-3 py-2.5 text-center">Status</th>
+                          <th className="px-3 py-2.5 text-center">Last Active</th>
                           <th className="px-3 py-2.5">Session Password</th>
                           <th className="px-3 py-2.5 text-center">First Change Required</th>
                           <th className="px-3 py-2.5 text-center">Operational Actions</th>
@@ -3897,12 +4379,29 @@ export default function App() {
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {staffAccounts.map((account) => {
-                          const isRootAdmin = account.psid === "PS101436";
+                          const isRootAdmin = account.psid === "PS101435" || account.psid === "PS101436";
+                          const isOnline = account.isOnline && account.lastActive && (Date.now() - new Date(account.lastActive).getTime() < 45000);
+                          const lastActiveStr = account.lastActive 
+                            ? new Date(account.lastActive).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " " + new Date(account.lastActive).toLocaleDateString([], { month: 'short', day: 'numeric' })
+                            : "Never";
                           return (
-                            <tr key={account.psid} className="hover:bg-slate-50/50 transition">
+                            <tr key={account.psid} className="hover:bg-slate-50/50 transition border-b border-slate-100">
                               <td className="px-3 py-3 font-mono font-bold text-slate-900">{account.psid}</td>
                               <td className="px-3 py-3 uppercase font-semibold text-slate-700 text-[11px]">{account.name}</td>
                               <td className="px-3 py-3 text-slate-500 font-medium text-[11px]">{account.role}</td>
+                              <td className="px-3 py-3 text-center">
+                                <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                                  isOnline 
+                                    ? "bg-emerald-50 text-emerald-800 border-emerald-100" 
+                                    : "bg-slate-50 text-slate-500 border-slate-100"
+                                }`}>
+                                  <span className={`h-1.5 w-1.5 rounded-full ${isOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
+                                  <span>{isOnline ? "ONLINE" : "OFFLINE"}</span>
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-center font-mono text-[10px] text-slate-500">
+                                {lastActiveStr}
+                              </td>
                               <td className="px-3 py-3 font-mono text-[11px] text-slate-400 italic font-bold">
                                 {account.password}
                               </td>
@@ -3961,7 +4460,8 @@ export default function App() {
                       const pwLogs = sessionLogs.filter(log => 
                         log.action === "PASSWORD_CHANGE" || 
                         log.action === "PASSWORD_RESET" ||
-                        log.action === "USER_REGISTER"
+                        log.action === "USER_REGISTER" ||
+                        log.action === "LOGIN"
                       );
                       
                       if (pwLogs.length === 0) {
@@ -3973,21 +4473,31 @@ export default function App() {
                       }
                       
                       return (
-                        <div className="max-h-[160px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                        <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
                           {pwLogs.map((log) => {
                             const isChange = log.action === "PASSWORD_CHANGE";
                             const isReset = log.action === "PASSWORD_RESET";
+                            const isLogin = log.action === "LOGIN";
                             return (
-                              <div key={log.id} className="p-2.5 bg-[#f5f5f7] rounded-lg border border-slate-200/50 text-xs flex items-start justify-between gap-3">
+                              <div key={log.id} className="p-2.5 bg-[#f5f5f7] rounded-lg border border-slate-200/50 text-xs flex items-start justify-between gap-3 font-sans">
                                 <div className="space-y-1">
-                                  <div className="flex items-center space-x-1.5">
+                                  <div className="flex items-center space-x-1.5 font-mono text-[10px]">
                                     <span className={`inline-block px-1.5 py-0.2 rounded text-[8px] font-bold uppercase font-sans ${
-                                      isChange ? "bg-emerald-50 text-emerald-800 border border-emerald-100" : isReset ? "bg-amber-50 text-amber-800 border border-amber-100" : "bg-blue-50 text-blue-800 border border-blue-100"
+                                      isChange 
+                                        ? "bg-emerald-50 text-emerald-800 border border-emerald-100" 
+                                        : isReset 
+                                          ? "bg-amber-50 text-amber-800 border border-amber-100" 
+                                          : isLogin 
+                                            ? "bg-indigo-50 text-indigo-850 border border-indigo-150"
+                                            : "bg-blue-50 text-blue-800 border border-blue-100"
                                     }`}>
                                       {log.action}
                                     </span>
-                                    <span className="font-bold text-slate-700 font-mono text-[11px]">
-                                      {log.psid} ({log.name})
+                                    <span className="font-bold text-slate-800 text-[11px]">
+                                      {log.psid}
+                                    </span>
+                                    <span className="text-slate-500 font-sans font-medium text-[10.5px]">
+                                      ({log.name})
                                     </span>
                                   </div>
                                   <p className="text-[11px] text-slate-500 font-sans">

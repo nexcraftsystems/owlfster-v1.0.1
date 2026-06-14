@@ -1,0 +1,108 @@
+{
+  "entities": {
+    "FMSCase": {
+      "title": "FMS Case",
+      "description": "Information about a parsed and resolved FMS fraud case.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cif": { "type": "string" },
+        "amount": { "type": "number" },
+        "eventType": { "type": "string" },
+        "riskScore": { "type": "string" },
+        "modeChannel": { "type": "string" },
+        "ruleId": { "type": "string" },
+        "fmsStatus": { "type": "string" },
+        "assignedOfficer": { "type": "string" },
+        "policyAction": { "type": "string" },
+        "caseCreatedTime": { "type": "string" },
+        "caseAssignedTime": { "type": "string" },
+        "callResponse": { "type": "string" },
+        "resolution": { "type": "string" },
+        "remarks": { "type": "string" },
+        "firstCallTime": { "type": "string" },
+        "firstCallRemarks": { "type": "string" },
+        "secondCallTime": { "type": "string" },
+        "secondCallRemarks": { "type": "string" },
+        "thirdCallTime": { "type": "string" },
+        "thirdCallRemarks": { "type": "string" },
+        "statusAction": { "type": "string" },
+        "escalateTeam": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "cif"]
+    },
+    "NSRCEntry": {
+      "title": "NSRC Entry",
+      "description": "An NSRC block entry for bank compliance.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "caseId": { "type": "string" },
+        "cif": { "type": "string" },
+        "regNo": { "type": "string" },
+        "name": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "accountBlockingType": { "type": "string" },
+        "businessUnit": { "type": "string" },
+        "accountClassification": { "type": "string" },
+        "statusBlockDesc": { "type": "string" },
+        "amount": { "type": "string" },
+        "earmarkAmount": { "type": "string" },
+        "earmark": { "type": "string" },
+        "remarks": { "type": "string" },
+        "reason": { "type": "string" },
+        "dateStamp": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "officerPsid": { "type": "string" }
+      },
+      "required": ["id", "cif"]
+    },
+    "SessionLog": {
+      "title": "Session Log",
+      "description": "Activity audit log for tracking and security.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "psid": { "type": "string" },
+        "name": { "type": "string" },
+        "action": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "details": { "type": "string" }
+      },
+      "required": ["id", "psid", "action"]
+    },
+    "StaffAccount": {
+      "title": "Staff Account",
+      "description": "Secure compliance officer profile credentials and role state.",
+      "type": "object",
+      "properties": {
+        "psid": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "password": { "type": "string" },
+        "mustChangePassword": { "type": "boolean" }
+      },
+      "required": ["psid", "name", "role", "password"]
+    }
+  },
+  "firestore": {
+    "cases/{caseId}": {
+      "schema": "FMSCase",
+      "description": "Compliance fms case records database."
+    },
+    "nsrcEntries/{nsrcId}": {
+      "schema": "NSRCEntry",
+      "description": "NSRC blocking records database."
+    },
+    "sessionLogs/{logId}": {
+      "schema": "SessionLog",
+      "description": "Audit and security registry logs."
+    },
+    "staffAccounts/{staffPsid}": {
+      "schema": "StaffAccount",
+      "description": "Credentials and security status of individual compliance officers."
+    }
+  }
+}

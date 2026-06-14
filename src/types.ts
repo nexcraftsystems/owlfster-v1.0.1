@@ -53,6 +53,7 @@ export interface NSRCEntry {
   reason: string;              // "Reason"
   dateStamp: string;
   createdAt: string;
+  officerPsid?: string;        // Assigned Officer PSID who created this NSRC
 }
 
 export interface BankFI {
