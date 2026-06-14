@@ -1601,12 +1601,8 @@ export default function App() {
   };
 
   const handleAdminResetPassword = async (psid: string) => {
-    const cleanPsid = psid.trim().toUpperCase();
-    const s = staffAccounts.find(acc => acc.psid.trim().toUpperCase() === cleanPsid);
-    if (!s) {
-      alert(`Error: Staff account with PSID '${psid}' not found in registry.`);
-      return;
-    }
+    const s = staffAccounts.find(acc => acc.psid === psid);
+    if (!s) return;
     
     const updatedAcc = {
       ...s,
@@ -1621,22 +1617,22 @@ export default function App() {
       name: currentUser ? currentUser.name : "System",
       action: "PASSWORD_RESET",
       timestamp: new Date().toLocaleString(),
-      details: `Administrator reset password for officer ${cleanPsid} to 'Affin123' (First Change Required)`
+      details: `Administrator reset password for officer ${psid} to 'Affin123' (First Change Required)`
     };
 
     try {
-      await setDoc(doc(db, "staffAccounts", cleanPsid), updatedAcc);
+      await setDoc(doc(db, "staffAccounts", psid), updatedAcc);
       await setDoc(doc(db, "sessionLogs", resetLog.id), resetLog);
-      alert(`Successfully reset password for officer ${cleanPsid} back to 'Affin123'. They will be required to change it on their next login session.`);
+      alert(`Successfully reset password for officer ${psid} back to 'Affin123'. They will be required to change it on their next login session.`);
     } catch (e) {
       console.error(e);
-      const updated = staffAccounts.map(acc => acc.psid.trim().toUpperCase() === cleanPsid ? updatedAcc : acc);
+      const updated = staffAccounts.map(acc => acc.psid === psid ? updatedAcc : acc);
       setStaffAccounts(updated);
       setSessionLogs(prev => [resetLog, ...prev]);
-      alert(`Successfully reset password for officer ${cleanPsid} back to 'Affin123' (Local).`);
+      alert(`Successfully reset password for officer ${psid} back to 'Affin123' (Local).`);
     }
     
-    if (currentUser && currentUser.psid.trim().toUpperCase() === cleanPsid) {
+    if (currentUser && currentUser.psid === psid) {
       setCurrentUser({
         ...currentUser,
         password: "Affin123",
@@ -2075,7 +2071,7 @@ export default function App() {
 
   // Evaluate dynamic user authentication and security status
   const liveDBUser = currentUser ? staffAccounts.find(s => s.psid.toUpperCase() === currentUser.psid.toUpperCase()) : null;
-  const enforcementRequired = liveDBUser ? (liveDBUser.mustChangePassword || false) : (currentUser?.mustChangePassword || false);
+  const enforcementRequired = false; // Disabled by user request to allow immediate access for all accounts without redirect / lock
 
   // 1. LOGIN SCREEN ENFORCEMENT
   if (!currentUser) {
