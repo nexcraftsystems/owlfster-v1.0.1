@@ -34,7 +34,8 @@ import {
   Terminal,
   Folder,
   User,
-  Globe
+  Globe,
+  CalendarRange
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { FMSCase, NSRCEntry, BankFI } from "./types";
@@ -73,6 +74,45 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 function sanitizeDisplayDetails(details: string | undefined | null): string {
   if (!details) return "";
   return details.replace(/Cyber@368/gi, "****");
+}
+
+function safeParseDate(dateStr: string | undefined | null): Date {
+  if (!dateStr) return new Date();
+  
+  const d = new Date(dateStr);
+  if (!isNaN(d.getTime())) return d;
+  
+  const cleanStr = dateStr.split(",")[0].trim();
+  const parts = cleanStr.split("/");
+  if (parts.length === 3) {
+    const p0 = parseInt(parts[0], 10);
+    const p1 = parseInt(parts[1], 10);
+    const p2 = parseInt(parts[2], 10);
+    if (p0 > 12) {
+      const parsed = new Date(p2, p1 - 1, p0);
+      if (!isNaN(parsed.getTime())) return parsed;
+    } else if (p1 > 12) {
+      const parsed = new Date(p2, p0 - 1, p1);
+      if (!isNaN(parsed.getTime())) return parsed;
+    } else {
+      const parsed = new Date(p2, p1 - 1, p0);
+      if (!isNaN(parsed.getTime())) return parsed;
+    }
+  }
+  return new Date();
+}
+
+function getCaseDateString(c: FMSCase): string {
+  if (c.caseCreatedTime) {
+    const parts = c.caseCreatedTime.split(",");
+    if (parts[0]) {
+      return parts[0].trim();
+    }
+  }
+  if (c.createdAt) {
+    return new Date(c.createdAt).toLocaleDateString();
+  }
+  return new Date().toLocaleDateString();
 }
 
 export interface BranchInfo {
@@ -373,6 +413,8 @@ export default function App() {
     const saved = localStorage.getItem("owl_cases_v4");
     return saved ? JSON.parse(saved) : INITIAL_CASES;
   });
+
+  const [scorecardDateFilter, setScorecardDateFilter] = useState("ALL");
 
   const [nsrcEntries, setNsrcEntries] = useState<NSRCEntry[]>(() => {
     const saved = localStorage.getItem("owl_nsrc_entries_v4");
@@ -761,10 +803,25 @@ export default function App() {
       formattedRemarks = formattedRemarks.replace(/\[timestamp\]/gi, nowString);
       formattedRemarks = formattedRemarks.replace(/\[TIMESTAMP\]/gi, nowString);
       setRemarks(formattedRemarks);
+
+      // Automatically set FMS Status Action to UNLOCKED if close verification or contacted/confirmed genuine, else LOCKED
+      if (
+        found.callResponse === "Close Screen Verification" ||
+        (found.callResponse === "Contacted" && found.resolution === "Confirmed Genuine")
+      ) {
+        setStatusAction("UNLOCKED");
+      } else {
+        setStatusAction("LOCKED");
+      }
+
+      // Automatically set first call attempt log timestamp and remarks
+      setFirstCallTime(nowString);
+      setFirstCallRemarks(found.name + " preset selected.");
     } else {
       setCallResponse("");
       setResolution("");
       setRemarks("");
+      setStatusAction("LOCKED");
     }
   };
 
@@ -2416,45 +2473,56 @@ export default function App() {
                 <div className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs lg:col-span-2">
                   <div className="flex items-center justify-between pb-3.5 border-b border-[#f5f5f7]">
                     <div>
-                      <h4 className="font-sans font-semibold text-xs text-slate-800 uppercase tracking-wider">Chronological Daily Cases Ingestion Loads</h4>
-                      <p className="text-[10px] text-slate-400 font-sans mt-0.5">Sharp-edge daily tracking of total financial exposures</p>
+                      <h4 className="font-sans font-semibold text-xs text-slate-800 uppercase tracking-wider">Total Case vs Each Day</h4>
+                      <p className="text-[10px] text-slate-400 font-sans mt-0.5">Daily cases timeline since June 14, 2026</p>
                     </div>
-                    <span className="text-[9px] bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-md font-sans font-semibold text-indigo-700 uppercase tracking-wide">Sharp Daily Edge</span>
+                    <span className="text-[9px] bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-md font-sans font-semibold text-amber-700 uppercase tracking-wide">Live Timeline</span>
                   </div>
                   
                   {/* Real-time calculated Sharp SVG Line Graph */}
                   {(() => {
-                    const dateMap: { [date: string]: { count: number, val: number, time: number } } = {};
+                    const filterDate = new Date(2026, 5, 14); // June 14, 2026
+                    filterDate.setHours(0, 0, 0, 0);
+
+                    const dateMap: { [dateStr: string]: { count: number, label: string, time: number } } = {};
+
                     cases.forEach(c => {
-                      const caseDate = c.caseCreatedTime ? new Date(c.caseCreatedTime.split(" ")[0]) : new Date(c.createdAt || Date.now());
-                      const label = caseDate.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-                      if (!dateMap[label]) {
-                        dateMap[label] = { count: 0, val: 0, time: caseDate.getTime() };
+                      const caseDate = safeParseDate(c.caseCreatedTime || c.createdAt);
+                      caseDate.setHours(0, 0, 0, 0);
+                      
+                      if (caseDate.getTime() >= filterDate.getTime()) {
+                        const label = caseDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+                        const dateStr = caseDate.toLocaleDateString("en-GB");
+                        if (!dateMap[dateStr]) {
+                          dateMap[dateStr] = {
+                            count: 0,
+                            label: label,
+                            time: caseDate.getTime()
+                          };
+                        }
+                        dateMap[dateStr].count += 1;
                       }
-                      dateMap[label].count += 1;
-                      dateMap[label].val += Number(c.amount || 0);
                     });
 
                     const chartData = Object.keys(dateMap).map(k => ({
-                      date: k,
+                      date: dateMap[k].label,
                       count: dateMap[k].count,
-                      val: dateMap[k].val,
                       time: dateMap[k].time
                     })).sort((a, b) => a.time - b.time);
 
-                    if (chartData.length < 2) {
+                    if (chartData.length < 1) {
                       return (
                         <div className="mt-4 flex flex-col items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl h-[160px] p-6 text-center">
                           <TrendingUp className="h-7 w-7 text-slate-350 mb-2 animate-pulse" />
-                          <span className="text-xs font-bold text-slate-700 font-sans">Trendline Graph Inactive</span>
+                          <span className="text-xs font-bold text-slate-700 font-sans">No Data after 14.06.2026</span>
                           <p className="text-[10px] text-slate-400 mt-1 max-w-sm font-sans leading-relaxed">
-                            Trend visualization requires a <strong>minimum of 2 days of data collections</strong>. Currently tracking: <span className="bg-slate-200 text-slate-800 font-mono px-1.5 py-0.2 rounded font-bold">{chartData.length} unique day(s)</span>. Add more historical cases to unlock!
+                            No cases matched the search filter since June 14, 2026.
                           </p>
                         </div>
                       );
                     }
 
-                    const maxVal = Math.max(...chartData.map(d => d.val), 50000);
+                    const maxCount = Math.max(...chartData.map(d => d.count), 5);
                     const width = 600;
                     const height = 150;
                     const padX = 40;
@@ -2464,23 +2532,32 @@ export default function App() {
 
                     // Compute points coordinates
                     const points = chartData.map((item, idx) => {
-                      const x = padX + idx * (effW / (chartData.length - 1));
-                      const y = height - padY - (item.val / maxVal) * effH;
-                      return { x, y, ...item };
+                      const divisor = chartData.length > 1 ? chartData.length - 1 : 1;
+                      const x = padX + idx * (effW / divisor);
+                      const yCount = height - padY - (item.count / maxCount) * effH;
+                      return { x, yCount, ...item };
                     });
 
-                    const polylinePoints = points.map(p => `${p.x},${p.y}`).join(" ");
-                    const pathArea = `${padX},${height - padY} ${polylinePoints} ${width - padX},${height - padY}`;
+                    const polylinePoints = points.map(p => `${p.x},${p.yCount}`).join(" ");
+                    const areaPoints = `${points[0].x},${height - padY} ${polylinePoints} ${points[points.length - 1].x},${height - padY}`;
 
                     return (
                       <div className="mt-4 flex flex-col">
+                        {/* Interactive Legend Row */}
+                        <div className="flex items-center space-x-3.5 mb-2.5 justify-end text-[9px] font-sans font-bold uppercase tracking-wider">
+                          <div className="flex items-center space-x-1">
+                            <span className="h-2.5 w-2.5 rounded-full bg-[#ff7a00]"></span>
+                            <span className="text-slate-550">Total Cases</span>
+                          </div>
+                        </div>
+
                         <div className="relative w-full overflow-hidden" style={{ height: "160px" }}>
                           {/* Main SVG drawing board */}
                           <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full animate-fade-in" preserveAspectRatio="none">
                             <defs>
-                              <linearGradient id="sharp-grad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#0071e3" stopOpacity="0.18" stopID="grad-stop-1" />
-                                <stop offset="100%" stopColor="#0071e3" stopOpacity="0.01" stopID="grad-stop-2" />
+                              <linearGradient id="sharp-grad-count" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#ff7a00" stopOpacity="0.15" />
+                                <stop offset="100%" stopColor="#ff7a00" stopOpacity="0.00" />
                               </linearGradient>
                             </defs>
 
@@ -2515,30 +2592,48 @@ export default function App() {
                               />
                             ))}
 
-                            {/* Shadowed fill area (sharp polygon) */}
-                            <polygon points={pathArea} fill="url(#sharp-grad)" />
+                            {/* Shadowed fill areas */}
+                            {points.length > 1 && (
+                              <polygon points={areaPoints} fill="url(#sharp-grad-count)" />
+                            )}
 
-                            {/* Crisp sharp line connection */}
-                            <polyline 
-                              points={polylinePoints} 
-                              fill="none" 
-                              stroke="#0071e3" 
-                              strokeWidth="2.8" 
-                              className="stroke-linecap-round stroke-linejoin-miter"
-                            />
+                            {/* Crisp sharp line connections */}
+                            {points.length > 1 && (
+                              <polyline 
+                                points={polylinePoints} 
+                                fill="none" 
+                                stroke="#ff7a00" 
+                                strokeWidth="3.5" 
+                                className="stroke-linecap-round stroke-linejoin-round"
+                              />
+                            )}
 
                             {/* Vertices indicator circles */}
                             {points.map((p, i) => (
-                              <circle 
-                                key={i} 
-                                cx={p.x} 
-                                cy={p.y} 
-                                r="4.5" 
-                                fill="#ffffff" 
-                                stroke="#0071e3" 
-                                strokeWidth="2.2" 
-                                className="transition-all hover:r-6 cursor-pointer"
-                              />
+                              <g key={i}>
+                                <circle 
+                                  cx={p.x} 
+                                  cy={p.yCount} 
+                                  r="5" 
+                                  fill="#ffffff" 
+                                  stroke="#ff7a00" 
+                                  strokeWidth="3" 
+                                />
+                              </g>
+                            ))}
+
+                            {/* Day-by-Day Vertices Text Labels directly above points */}
+                            {points.map((p, i) => (
+                              <g key={`lbl-${i}`}>
+                                <text
+                                  x={p.x}
+                                  y={p.yCount - 10}
+                                  textAnchor="middle"
+                                  className="fill-[#ff7a00] font-sans text-[10px] font-bold"
+                                >
+                                  {p.count}
+                                </text>
+                              </g>
                             ))}
                           </svg>
 
@@ -2558,10 +2653,9 @@ export default function App() {
                                   }}
                                 >
                                   {/* Custom Tooltip on Hover */}
-                                  <div className="absolute pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 bg-slate-900 border border-slate-800 text-white p-2 rounded-xl text-center shadow-lg -top-16 left-1/2 -translate-x-1/2 z-30 whitespace-nowrap min-w-28 select-none">
-                                    <p className="font-sans font-bold text-[9px] text-[#34c759] uppercase tracking-wider">{p.date}</p>
-                                    <p className="font-sans text-[11px] font-bold mt-0.5">{p.count} Active Cases</p>
-                                    <p className="font-mono text-[10px] text-slate-300">RM {p.val.toLocaleString()}</p>
+                                  <div className="absolute pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 bg-slate-900 border border-slate-800 text-white p-2.5 rounded-xl text-center shadow-lg -top-16 left-1/2 -translate-x-1/2 z-30 whitespace-nowrap min-w-32 select-none">
+                                    <p className="font-sans font-bold text-[9px] text-amber-400 uppercase tracking-wider">{p.date}</p>
+                                    <p className="font-sans text-[11px] font-bold mt-0.5 text-white">{p.count} Total Case(s)</p>
                                   </div>
                                 </div>
                               );
@@ -2639,7 +2733,7 @@ export default function App() {
 
               {/* OFFICER STATS SCORECARD */}
               <div id="stat-scorecard-table" className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-                <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
+                <div className="pb-3 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-2">
                   <div>
                     <h4 className="font-display font-semibold text-xs text-slate-800 uppercase tracking-wider flex items-center space-x-2">
                       <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -2649,15 +2743,36 @@ export default function App() {
                       Reflecting team-wide real-time FMS case resolutions and decision workloads synced across all database roles
                     </p>
                   </div>
-                  <button 
-                    onClick={() => {
-                      alert("Daily PSID Excel log compiler triggering...");
-                    }}
-                    className="flex items-center space-x-1 px-2.5 py-1 bg-slate-900 text-white text-[10px] font-bold rounded hover:bg-slate-700 transition"
-                  >
-                    <FileSpreadsheet className="h-3.5 w-3.5" />
-                    <span>Excel Log</span>
-                  </button>
+                  
+                  <div className="flex items-center space-x-2 shrink-0">
+                    {/* Scorecard Date Filter Dropdown */}
+                    <div className="flex items-center space-x-1 bg-slate-100 border border-slate-250 rounded px-2 py-1 text-[11px] font-semibold text-slate-700">
+                      <CalendarRange className="h-3.5 w-3.5 text-slate-500" />
+                      <select
+                        id="scorecard-date-filter"
+                        value={scorecardDateFilter}
+                        onChange={(e) => setScorecardDateFilter(e.target.value)}
+                        className="bg-transparent border-none text-[11px] font-semibold text-slate-700 focus:outline-none cursor-pointer"
+                      >
+                        <option value="ALL">All Dates (All Workload)</option>
+                        {Array.from(new Set(cases.map(c => getCaseDateString(c))))
+                          .sort((a: string, b: string) => safeParseDate(b).getTime() - safeParseDate(a).getTime())
+                          .map(dateStr => (
+                            <option key={dateStr} value={dateStr}>{dateStr}</option>
+                          ))}
+                      </select>
+                    </div>
+
+                    <button 
+                      onClick={() => {
+                        alert("Daily PSID Excel log compiler triggering...");
+                      }}
+                      className="flex items-center space-x-1 px-2.5 py-1 bg-slate-900 text-white text-[10px] font-bold rounded hover:bg-slate-700 transition"
+                    >
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                      <span>Excel Log</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mt-3 overflow-x-auto">
@@ -2680,15 +2795,20 @@ export default function App() {
                         const isCurrent = officer.psid === currentOfficer.psid;
                         const scoreCases = cases.filter(c => c.assignedOfficer === officer.psid);
                         
-                        const confirmFraud = scoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("confirm") && c.resolution.toLowerCase().includes("fraud")).length;
-                        const suspectedFraud = scoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("suspect")).length;
-                        const confirmGenuine = scoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("confirm") && c.resolution.toLowerCase().includes("genuine")).length;
-                        const assumeGenuine = scoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("assume") && c.resolution.toLowerCase().includes("genuine")).length;
+                        // Apply scorecardDateFilter if not ALL
+                        const filteredScoreCases = scorecardDateFilter === "ALL"
+                          ? scoreCases
+                          : scoreCases.filter(c => getCaseDateString(c) === scorecardDateFilter);
+
+                        const confirmFraud = filteredScoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("confirm") && c.resolution.toLowerCase().includes("fraud")).length;
+                        const suspectedFraud = filteredScoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("suspect")).length;
+                        const confirmGenuine = filteredScoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("confirm") && c.resolution.toLowerCase().includes("genuine")).length;
+                        const assumeGenuine = filteredScoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("assume") && c.resolution.toLowerCase().includes("genuine")).length;
                         
-                        const contacted = scoreCases.filter(c => c.callResponse && (c.callResponse.toLowerCase().includes("contacted") || c.callResponse.toLowerCase().includes("close screen"))).length;
-                        const noContact = scoreCases.filter(c => c.callResponse && c.callResponse.toLowerCase().includes("unable")).length;
-                        const closeManual = scoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("manual")).length;
-                        const totalWorkload = scoreCases.length;
+                        const contacted = filteredScoreCases.filter(c => c.callResponse && (c.callResponse.toLowerCase().includes("contacted") || c.callResponse.toLowerCase().includes("close screen"))).length;
+                        const noContact = filteredScoreCases.filter(c => c.callResponse && c.callResponse.toLowerCase().includes("unable")).length;
+                        const closeManual = filteredScoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("manual")).length;
+                        const totalWorkload = filteredScoreCases.length;
 
                         return (
                           <tr key={officer.psid} className={`hover:bg-slate-50 transition-colors ${isCurrent ? "bg-amber-50/40" : ""}`}>
@@ -3389,32 +3509,25 @@ export default function App() {
                     </div>
 
                     {/* STATUS ACTION & ESCALATION */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[8px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">FMS Status Action</label>
-                        <select 
-                          value={statusAction}
-                          onChange={(e) => setStatusAction(e.target.value)}
-                          className="w-full px-1.5 py-1 text-[11px] border border-slate-200 rounded focus:outline-none bg-white"
-                        >
-                          <option value="No status change...">No status change...</option>
-                          <option value="LOCKED">LOCKED</option>
-                          <option value="UNLOCKED">UNLOCKED</option>
-                          <option value="PERMANENT BLOCK">PERMANENT BLOCK</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[8px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">Escalate Team</label>
-                        <select
-                          value={escalateTeam}
-                          onChange={(e) => setEscalateTeam(e.target.value)}
-                          className="w-full px-1.5 py-1 text-[11px] border border-slate-200 rounded focus:outline-none bg-white"
-                        >
-                          <option value="No / Local Agent Only">No / Local Agent Only</option>
-                          <option value="FRAUD OPS SQUAD">Fraud Ops Squad</option>
-                          <option value="MANAGEMENT ESCALATE">Management Escalation</option>
-                        </select>
-                      </div>
+                    <div className="w-full">
+                      <label className="block text-[8px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">FMS Status Action</label>
+                      <select 
+                        value={statusAction}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setStatusAction(val);
+                          // Automatically put current timestamp on 1st call attempt time
+                          const nowString = new Date().toLocaleDateString("en-GB") + ", " + new Date().toLocaleTimeString("en-GB", { hour12: false });
+                          setFirstCallTime(nowString);
+                          setFirstCallRemarks(prev => prev || "Call 1 Attempt initiated.");
+                        }}
+                        className="w-full px-1.5 py-1 text-[11px] border border-slate-200 rounded focus:outline-none bg-white"
+                      >
+                        <option value="No status change...">No status change...</option>
+                        <option value="LOCKED">LOCKED</option>
+                        <option value="UNLOCKED">UNLOCKED</option>
+                        <option value="PERMANENT BLOCK">PERMANENT BLOCK</option>
+                      </select>
                     </div>
 
                     {/* ACTIONS */}
