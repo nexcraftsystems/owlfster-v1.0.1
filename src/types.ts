@@ -16,6 +16,10 @@ export interface FMSCase {
   policyAction: string;
   caseCreatedTime: string;
   caseAssignedTime: string;
+  caseModifiedTime?: string;
+  org?: string;
+  mode?: string;
+  ipDetails?: string;
   
   // Resolution fields
   callResponse: string;

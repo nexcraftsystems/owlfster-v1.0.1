@@ -15,6 +15,10 @@ export interface ParsedFMS {
   policyAction: string;
   caseCreatedTime: string;
   caseAssignedTime: string;
+  caseModifiedTime?: string;
+  org?: string;
+  mode?: string;
+  ipDetails?: string;
 }
 
 /**
@@ -34,18 +38,96 @@ export function parseFMSInput(rawInput: string): Partial<ParsedFMS> {
       day: "numeric",
       year: "numeric"
     }) + " " + new Date().toLocaleTimeString("en-US") + " MYT",
+    caseModifiedTime: new Date().toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    }) + " " + new Date().toLocaleTimeString("en-US") + " MYT",
+    mode: "PROD",
+    fmsStatus: "IN_PROGRESS",
+    eventType: "PAYMENT",
+    riskScore: "85",
+    ipDetails: "127.0.0.1 (MY)",
+    ruleId: "Total Transaction Amount Monitoring",
+    policyAction: "CHALLENGE"
   };
 
   if (!rawInput || rawInput.trim() === "") {
     return result;
   }
 
-  const lines = rawInput.split(/\r?\n/);
-  
-  // 1. Try parsing key-value lines (e.g., "CIF Number: 350028093" or "Amount: RM20500")
+  // 1. Check for tab-separated row (standard copy-paste from table cells)
+  const tabs = rawInput.split('\t').map(p => p.trim());
+  if (tabs.length >= 8) {
+    const cleanCell = (str: string) => str ? str.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim() : "";
+    
+    result.caseCreatedTime = cleanCell(tabs[0]);
+    result.caseModifiedTime = cleanCell(tabs[1]);
+    
+    const userOrg = cleanCell(tabs[2]);
+    if (userOrg) {
+      const tokens = userOrg.split(" ");
+      result.cif = tokens[0] || "";
+      result.org = tokens[1] || "";
+    }
+    
+    result.mode = cleanCell(tabs[3]) || "PROD";
+    result.fmsStatus = cleanCell(tabs[4]) || "IN_PROGRESS";
+    result.eventType = cleanCell(tabs[5]) || "PAYMENT";
+    result.riskScore = cleanCell(tabs[6]) || "85";
+    result.ipDetails = cleanCell(tabs[7]) || "127.0.0.1 (MY)";
+    result.ruleId = cleanCell(tabs[8]) || "Total Transaction Amount Monitoring";
+    result.policyAction = cleanCell(tabs[9]) || "CHALLENGE";
+    result.assignedOfficer = cleanCell(tabs[10]) || "PS101435";
+    
+    // Fallback amount parsing if any amount-like number is in the text
+    const amtMatch = rawInput.match(/(?:RM|\$)?\s*([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})/i);
+    if (amtMatch) {
+      result.amount = parseFloat(amtMatch[1].replace(/,/g, ""));
+    } else {
+      result.amount = 0;
+    }
+    
+    return result;
+  }
+
+  // 2. Check for newline-separated values (vertical copy-paste list)
+  const lines = rawInput.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length >= 12) {
+    // Let's check if the first cell looks like Date components: "Jun 28, 2026", "2:39:01 PM", "MYT"
+    const isDate0 = lines[0].includes(",") && /\d{4}/.test(lines[0]);
+    const isTime1 = lines[1].includes(":") && (lines[1].toLowerCase().includes("pm") || lines[1].toLowerCase().includes("am"));
+    
+    if (isDate0 && isTime1) {
+      result.caseCreatedTime = `${lines[0]} ${lines[1]} ${lines[2]}`;
+      result.caseModifiedTime = `${lines[3]} ${lines[4]} ${lines[5]}`;
+      result.cif = lines[6];
+      result.org = lines[7];
+      result.mode = lines[8];
+      result.fmsStatus = lines[9];
+      result.eventType = lines[10];
+      result.riskScore = lines[11];
+      
+      if (lines[12] && lines[13] && lines[13].startsWith("(")) {
+        result.ipDetails = `${lines[12]} ${lines[13]}`;
+        result.ruleId = lines[14] || "Total Transaction Amount Monitoring";
+        result.policyAction = lines[15] || "CHALLENGE";
+        result.assignedOfficer = lines[16] || "PS101435";
+      } else {
+        result.ipDetails = lines[12];
+        result.ruleId = lines[13] || "Total Transaction Amount Monitoring";
+        result.policyAction = lines[14] || "CHALLENGE";
+        result.assignedOfficer = lines[15] || "PS101435";
+      }
+      
+      result.amount = 0;
+      return result;
+    }
+  }
+
+  // 3. Fallback: Opportunistic parsing from unstructured text or individual KV pairs
   let kvMatched = false;
   lines.forEach((line) => {
-    // Standardize separators
     const cleaned = line.replace(/\s+/g, " ");
     const match = cleaned.match(/^(CIF|CIF Number|User ID|Amount|Risk|Event|Rule|Mode|Status|Action)[:\-=\t](.*)$/i);
     if (match) {
@@ -57,7 +139,6 @@ export function parseFMSInput(rawInput: string): Partial<ParsedFMS> {
         const cifMatch = val.match(/\d+/);
         if (cifMatch) result.cif = cifMatch[0];
       } else if (key.includes("amount")) {
-        // Strip RM, currencies, commas
         const amtStr = val.replace(/[^\d.]/g, "");
         const parsedAmt = parseFloat(amtStr);
         if (!isNaN(parsedAmt)) result.amount = parsedAmt;
@@ -66,7 +147,7 @@ export function parseFMSInput(rawInput: string): Partial<ParsedFMS> {
       } else if (key.includes("risk")) {
         result.riskScore = val;
       } else if (key.includes("mode")) {
-        result.modeChannel = val;
+        result.mode = val;
       } else if (key.includes("rule")) {
         result.ruleId = val;
       } else if (key.includes("status")) {
@@ -81,18 +162,13 @@ export function parseFMSInput(rawInput: string): Partial<ParsedFMS> {
     return result;
   }
 
-  // 2. Fallback to extracting information opportunistically from loose text / tabs
-  // Search for any 9 to 12 digit number (typical CIF or account number)
+  // Opportunistic search on unstructured text words
   const allWords = rawInput.split(/[\s\t,]+/);
-  
-  // Look for sequences of digits
-  const cifsFound = allWords.filter(word => /^\d{9,12}$/.test(word));
+  const cifsFound = allWords.filter(word => /^\d{8,12}$/.test(word));
   if (cifsFound.length > 0) {
     result.cif = cifsFound[0];
   }
 
-  // Look for and extract Amount
-  // search for "RM" or "$" followed by digits, or numbers with decimals like "20,500.00"
   const amountRegex = /(?:RM|\$)?\s*([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})/i;
   const amtMatch = rawInput.match(amountRegex);
   if (amtMatch) {
@@ -101,59 +177,44 @@ export function parseFMSInput(rawInput: string): Partial<ParsedFMS> {
     if (!isNaN(parsedAmt)) {
       result.amount = parsedAmt;
     }
-  } else {
-    // opportunistic number search that has a dot and digits
-    const dotAmtMatch = rawInput.match(/\b\d+\.\d{2}\b/);
-    if (dotAmtMatch) {
-      const parsedAmt = parseFloat(dotAmtMatch[0]);
-      if (!isNaN(parsedAmt)) result.amount = parsedAmt;
-    }
   }
 
-  // Auto-set rules and event types if detected in raw string
   if (rawInput.toUpperCase().includes("AFFINRIBMY")) {
-    result.ruleId = "AFFINRIBMY";
-  } else {
-    const ruleMatch = rawInput.match(/([A-Z]{3,}_[A-Z0-9_]{3,})/i);
-    if (ruleMatch) result.ruleId = ruleMatch[1].toUpperCase();
+    result.org = "AFFINRIBMY";
+    result.ruleId = "Total Transaction Amount Monitoring";
   }
 
   if (rawInput.toUpperCase().includes("TRANSFER")) {
     result.eventType = "TRANSFER_RT";
   } else if (rawInput.toUpperCase().includes("LOGIN") || rawInput.toUpperCase().includes("LOG IN")) {
     result.eventType = "RIB_LOGIN";
-  } else {
-    result.eventType = "SUSPICIOUS_PAYMENT";
+  } else if (rawInput.toUpperCase().includes("PAYMENT")) {
+    result.eventType = "PAYMENT";
   }
 
-  if (rawInput.toUpperCase().includes("DENY")) {
+  if (rawInput.toUpperCase().includes("CHALLENGE")) {
+    result.policyAction = "CHALLENGE";
+  } else if (rawInput.toUpperCase().includes("DENY")) {
     result.policyAction = "DENY";
   } else if (rawInput.toUpperCase().includes("HOLD")) {
     result.policyAction = "HOLD";
-  } else {
-    result.policyAction = "REVIEW";
   }
 
-  if (rawInput.toUpperCase().includes("LOCKED")) {
+  if (rawInput.toUpperCase().includes("IN_PROGRESS")) {
+    result.fmsStatus = "IN_PROGRESS";
+  } else if (rawInput.toUpperCase().includes("LOCKED")) {
     result.fmsStatus = "LOCKED";
-  } else {
-    result.fmsStatus = "SUSPENDED";
   }
 
-  // Risk Score: extract any number from 0-100 or "High/Medium/Low"
-  const scoreMatch = rawInput.match(/\b(100|[1-9]?[0-9])\b/);
+  const scoreMatch = rawInput.match(/\b(1000|[1-9]?[0-9]{2})\b/);
   if (scoreMatch && !result.cif?.includes(scoreMatch[0])) {
     result.riskScore = scoreMatch[0];
-  } else if (rawInput.toUpperCase().includes("HIGH")) {
-    result.riskScore = "95";
-  } else {
-    result.riskScore = "80";
   }
 
-  if (rawInput.toUpperCase().includes("MOBILE")) {
-    result.modeChannel = "MOBILE_APP";
-  } else {
-    result.modeChannel = "RIB_PORTAL";
+  if (rawInput.toUpperCase().includes("PROD")) {
+    result.mode = "PROD";
+  } else if (rawInput.toUpperCase().includes("UAT")) {
+    result.mode = "UAT";
   }
 
   return result;
