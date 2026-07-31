@@ -35,13 +35,18 @@ import {
   Folder,
   User,
   Globe,
-  CalendarRange
+  CalendarRange,
+  Zap,
+  BarChart3,
+  PieChart,
+  ShieldAlert,
+  ShieldCheck,
+  Target
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { FMSCase, NSRCEntry, BankFI } from "./types";
+import { FMSCase, BankFI } from "./types";
 import { parseFMSInput } from "./parser";
-import { downloadProtectedNSRCExcel } from "./excelExport";
-import { INITIAL_CASES, INITIAL_NSRC, MALAYSIAN_BANKS, OFFICER_SCORES, OfficerScore } from "./mockData";
+import { INITIAL_CASES, MALAYSIAN_BANKS, OFFICER_SCORES, OfficerScore } from "./mockData";
 import { db } from "./firebase";
 import { collection, doc, setDoc, deleteDoc, onSnapshot } from "firebase/firestore";
 
@@ -416,11 +421,6 @@ export default function App() {
 
   const [scorecardDateFilter, setScorecardDateFilter] = useState("ALL");
 
-  const [nsrcEntries, setNsrcEntries] = useState<NSRCEntry[]>(() => {
-    const saved = localStorage.getItem("owl_nsrc_entries_v4");
-    return saved ? JSON.parse(saved) : INITIAL_NSRC;
-  });
-
   const [sessionLogs, setSessionLogs] = useState<any[]>(() => {
     const saved = localStorage.getItem("owl_session_logs_v4");
     if (saved) return JSON.parse(saved);
@@ -452,11 +452,11 @@ export default function App() {
     const staffRef = collection(db, "staffAccounts");
     const unsubscribeStaff = onSnapshot(staffRef, async (snapshot) => {
       const coreAccounts = [
-        { psid: "PS101435", name: "Zaim", role: "Admin", status: "Active", password: "Affin123", mustChangePassword: true },
-        { psid: "PS101436", name: "Faris", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
-        { psid: "PS101477", name: "Nabil", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
-        { psid: "PS101405", name: "Naja", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
-        { psid: "PS101480", name: "Izzat", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true }
+        { psid: "PS101435", name: "Zaim", email: "wanahmadzaim@affingroup.com", role: "Admin", status: "Active", password: "Affin123", mustChangePassword: true },
+        { psid: "PS101436", name: "Faris", email: "muhammad.faris@affingroup.com", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
+        { psid: "PS101477", name: "Nabil", email: "nabil@affingroup.com", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
+        { psid: "PS101405", name: "Naja", email: "shahiranajatul@affingroup.com", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true },
+        { psid: "PS101480", name: "Izzat", email: "izzat.daniel@affingroup.com", role: "Staff", status: "Active", password: "Affin123", mustChangePassword: true }
       ];
 
       if (snapshot.empty) {
@@ -471,9 +471,12 @@ export default function App() {
         
         let missingDetected = false;
         for (const core of coreAccounts) {
-          if (!items.some(item => item.psid.toUpperCase() === core.psid.toUpperCase())) {
+          const existing = items.find(item => item.psid.toUpperCase() === core.psid.toUpperCase());
+          if (!existing) {
             missingDetected = true;
             await setDoc(doc(db, "staffAccounts", core.psid), core);
+          } else if (!existing.email) {
+            await setDoc(doc(db, "staffAccounts", core.psid), { ...existing, email: core.email });
           }
         }
         
@@ -507,29 +510,7 @@ export default function App() {
       handleFirestoreError(error, OperationType.GET, "cases");
     });
 
-    // 3. NSRC Entries real-time syncing
-    const nsrcRef = collection(db, "nsrcEntries");
-    const unsubscribeNsrc = onSnapshot(nsrcRef, async (snapshot) => {
-      if (snapshot.empty) {
-        for (const item of INITIAL_NSRC) {
-          await setDoc(doc(db, "nsrcEntries", item.id), item);
-        }
-      } else {
-        const items: NSRCEntry[] = [];
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          if (doc.id !== "clear_marker") {
-            items.push(data as NSRCEntry);
-          }
-        });
-        items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        setNsrcEntries(items);
-      }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, "nsrcEntries");
-    });
-
-    // 4. Session Logs real-time syncing
+    // 3. Session Logs real-time syncing
     const logsRef = collection(db, "sessionLogs");
     const unsubscribeLogs = onSnapshot(logsRef, async (snapshot) => {
       if (snapshot.empty) {
@@ -571,7 +552,6 @@ export default function App() {
     return () => {
       unsubscribeStaff();
       unsubscribeCases();
-      unsubscribeNsrc();
       unsubscribeLogs();
     };
   }, []);
@@ -618,16 +598,12 @@ export default function App() {
     };
   }, [currentUser?.psid, staffAccounts.length]);
 
-  const [activeTab, setActiveTab] = useState<"DASHBOARD" | "CASE" | "DATABASE" | "SEARCH FI" | "NSRC" | "ADMIN">("CASE");
+  const [activeTab, setActiveTab] = useState<"DASHBOARD" | "CASE" | "DATABASE" | "SEARCH FI" | "ADMIN">("CASE");
 
   // Save to persistence
   useEffect(() => {
     localStorage.setItem("owl_cases_v4", JSON.stringify(cases));
   }, [cases]);
-
-  useEffect(() => {
-    localStorage.setItem("owl_nsrc_entries_v4", JSON.stringify(nsrcEntries));
-  }, [nsrcEntries]);
 
   useEffect(() => {
     localStorage.setItem("owl_session_logs_v4", JSON.stringify(sessionLogs));
@@ -663,6 +639,11 @@ export default function App() {
     defaultFilename: string;
     customFilename: string;
   } | null>(null);
+
+  // Infographic Dashboard Filters
+  const [ingestionFilterDate, setIngestionFilterDate] = useState<string>("ALL");
+  const [monthFilter, setMonthFilter] = useState<string>("2026-06");
+  const [officerChartDateFilter, setOfficerChartDateFilter] = useState<string>("ALL");
 
   // Active officer session resolver
   const currentOfficer = currentUser || {
@@ -814,9 +795,14 @@ export default function App() {
         setStatusAction("LOCKED");
       }
 
-      // Automatically set first call attempt log timestamp and remarks
-      setFirstCallTime(nowString);
-      setFirstCallRemarks(found.name + " preset selected.");
+      // Automatically set call attempt log timestamp and remarks
+      if (caseMode === "UPDATE") {
+        setSecondCallTime(nowString);
+        setSecondCallRemarks(found.name + " preset applied on update.");
+      } else {
+        setFirstCallTime(nowString);
+        setFirstCallRemarks(found.name + " preset selected.");
+      }
     } else {
       setCallResponse("");
       setResolution("");
@@ -890,6 +876,34 @@ export default function App() {
     const finalId = caseMode === "UPDATE" && existsIdx >= 0 ? cases[existsIdx].id : "fms-" + Date.now();
     const finalCreatedAt = caseMode === "UPDATE" && existsIdx >= 0 ? cases[existsIdx].createdAt : new Date().toISOString();
 
+    const nowString = formatFmsDateTime(new Date().toISOString());
+    const originalCase = existsIdx >= 0 ? cases[existsIdx] : null;
+
+    let fTime = firstCallTime || nowString;
+    let fRemarks = firstCallRemarks || "1st Call logged";
+    let sTime = secondCallTime;
+    let sRemarks = secondCallRemarks;
+    let tTime = thirdCallTime;
+    let tRemarks = thirdCallRemarks;
+
+    if (caseMode === "UPDATE" && originalCase) {
+      fTime = originalCase.firstCallTime || firstCallTime || nowString;
+      fRemarks = originalCase.firstCallRemarks || firstCallRemarks || "1st Call logged";
+
+      const originalSecondFilled = Boolean(originalCase.secondCallTime && originalCase.secondCallTime.trim() !== "");
+      if (originalSecondFilled) {
+        sTime = originalCase.secondCallTime;
+        sRemarks = originalCase.secondCallRemarks || secondCallRemarks || "2nd Call logged";
+        tTime = thirdCallTime || nowString;
+        tRemarks = thirdCallRemarks || remarks || "3rd Call logged";
+      } else {
+        sTime = secondCallTime || nowString;
+        sRemarks = secondCallRemarks || remarks || "2nd Call logged";
+        tTime = thirdCallTime;
+        tRemarks = thirdCallRemarks;
+      }
+    }
+
     const finalCase: FMSCase = {
       id: finalId,
       cif: caseCif,
@@ -901,17 +915,17 @@ export default function App() {
       fmsStatus: caseFmsStatus === "-" ? "ACTIVE" : caseFmsStatus,
       assignedOfficer: currentOfficer.psid,
       policyAction: casePolicyAction === "-" ? "REVIEW" : casePolicyAction,
-      caseCreatedTime: caseCreatedTime || new Date().toLocaleString(),
-      caseAssignedTime: caseAssignedTime || new Date().toLocaleString(),
+      caseCreatedTime: caseCreatedTime ? formatFmsDateTime(caseCreatedTime) : formatFmsDateTime(new Date().toISOString()),
+      caseAssignedTime: caseAssignedTime ? formatFmsDateTime(caseAssignedTime) : formatFmsDateTime(new Date().toISOString()),
       callResponse,
       resolution,
       remarks,
-      firstCallTime,
-      firstCallRemarks,
-      secondCallTime,
-      secondCallRemarks,
-      thirdCallTime,
-      thirdCallRemarks,
+      firstCallTime: fTime,
+      firstCallRemarks: fRemarks,
+      secondCallTime: sTime,
+      secondCallRemarks: sRemarks,
+      thirdCallTime: tTime,
+      thirdCallRemarks: tRemarks,
       statusAction,
       escalateTeam,
       createdAt: finalCreatedAt
@@ -940,7 +954,7 @@ export default function App() {
 
   // Helper timestamps sets functions
   const handleSetCurrentTimestamp = (callIndex: 1 | 2 | 3) => {
-    const nowString = new Date().toLocaleDateString("en-GB") + ", " + new Date().toLocaleTimeString("en-GB", { hour12: false });
+    const nowString = formatFmsDateTime(new Date().toISOString());
     if (callIndex === 1) {
       setFirstCallTime(nowString);
       setFirstCallRemarks(prev => prev || "Call 1 Attempt initiated.");
@@ -953,6 +967,146 @@ export default function App() {
     }
   };
 
+  const parseFmsToMs = (raw?: string): number | null => {
+    if (!raw || raw === "-" || raw.trim() === "" || raw === "N/A" || raw === "AWAITING CLOSED") return null;
+    const cleaned = raw.replace(/MYT/i, "").replace(",", "").trim();
+    
+    // 1. Month name search e.g. "Jul 30, 2026 07:45 AM"
+    const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    const lower = cleaned.toLowerCase();
+    let foundMonthIdx = -1;
+    for (let i = 0; i < monthNames.length; i++) {
+      if (lower.includes(monthNames[i])) {
+        foundMonthIdx = i;
+        break;
+      }
+    }
+
+    if (foundMonthIdx !== -1) {
+      const numbers = cleaned.match(/\d+/g);
+      if (numbers && numbers.length >= 3) {
+        const day = parseInt(numbers[0], 10);
+        let year = parseInt(numbers[1], 10);
+        if (year < 100) year += 2000;
+        let hours = numbers.length > 2 ? parseInt(numbers[2], 10) : 0;
+        const mins = numbers.length > 3 ? parseInt(numbers[3], 10) : 0;
+        const ampmCandidate = cleaned.match(/AM|PM/i);
+        if (ampmCandidate) {
+          if (ampmCandidate[0].toUpperCase() === "PM" && hours < 12) hours += 12;
+          if (ampmCandidate[0].toUpperCase() === "AM" && hours === 12) hours = 0;
+        }
+        return Date.UTC(year, foundMonthIdx, day, hours, mins);
+      }
+    }
+
+    // 2. ISO format like "2026-07-30T07:45:00.000Z"
+    if (cleaned.includes("T")) {
+      const d = new Date(cleaned);
+      if (!isNaN(d.getTime())) {
+        return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes());
+      }
+    }
+
+    // 3. Delimited numeric date (e.g. "30/07/2026 07:45" or "2026-07-30 07:45")
+    const parts = cleaned.split(/[\s,/:-]+/);
+    if (parts.length >= 3) {
+      const p0 = parseInt(parts[0], 10);
+      const p1 = parseInt(parts[1], 10);
+      const p2 = parseInt(parts[2], 10);
+      if (!isNaN(p0) && !isNaN(p1) && !isNaN(p2)) {
+        let day = p0;
+        let month = p1 - 1;
+        let year = p2;
+        if (p0 > 2000) {
+          year = p0;
+          month = p1 - 1;
+          day = p2;
+        } else if (year < 100) {
+          year += 2000;
+        }
+        let hours = parts.length > 3 ? parseInt(parts[3], 10) : 0;
+        const mins = parts.length > 4 ? parseInt(parts[4], 10) : 0;
+        const ampmCandidate = parts.find(p => p.toUpperCase() === "AM" || p.toUpperCase() === "PM");
+        if (ampmCandidate) {
+          if (ampmCandidate.toUpperCase() === "PM" && hours < 12) hours += 12;
+          if (ampmCandidate.toUpperCase() === "AM" && hours === 12) hours = 0;
+        }
+        return Date.UTC(year, month, day, hours, mins);
+      }
+    }
+
+    // 4. Fallback using standard Date constructor
+    const stdDate = new Date(cleaned);
+    if (!isNaN(stdDate.getTime())) {
+      return Date.UTC(stdDate.getUTCFullYear(), stdDate.getUTCMonth(), stdDate.getUTCDate(), stdDate.getUTCHours(), stdDate.getUTCMinutes());
+    }
+
+    return null;
+  };
+
+  const formatFmsDateTime = (raw?: string, dateOnly: boolean = false): string => {
+    if (!raw || raw === "-" || raw.trim() === "" || raw === "N/A") return "-";
+    if (raw === "AWAITING CLOSED") return "AWAITING CLOSED";
+
+    const ms = parseFmsToMs(raw);
+    if (ms === null) return raw.trim();
+
+    const d = new Date(ms);
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const m = months[d.getMonth()];
+    const dayStr = String(d.getDate()).padStart(2, "0");
+    const yr = d.getFullYear();
+
+    if (dateOnly) {
+      return `${m} ${dayStr}, ${yr}`;
+    }
+
+    let hours = d.getHours();
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12;
+    if (hours === 0) hours = 12;
+    const hrStr = String(hours).padStart(2, "0");
+    const minStr = String(d.getMinutes()).padStart(2, "0");
+    return `${m} ${dayStr}, ${yr} ${hrStr}:${minStr} ${ampm} MYT`;
+  };
+
+  const getFmsStatusText = (resolution?: string): "Closed" | "In-progress" => {
+    if (!resolution) return "In-progress";
+    const lower = resolution.toLowerCase().trim();
+    if (
+      lower.includes("assume genuine") ||
+      lower.includes("confirmed genuine") ||
+      lower.includes("suspected fraud") ||
+      lower.includes("genuine") ||
+      lower.includes("fraud")
+    ) {
+      return "Closed";
+    }
+    return "In-progress";
+  };
+
+  const calculateCaseTAT = (cs: FMSCase): string => {
+    if (!cs) return "0 mins";
+    const createdTimeStr = cs.caseCreatedTime || cs.createdAt;
+    const attendedTimeStr = cs.firstCallTime || cs.caseAssignedTime || createdTimeStr;
+    
+    const createdMs = parseFmsToMs(createdTimeStr);
+    const attendedMs = parseFmsToMs(attendedTimeStr);
+
+    let diffMins = 0;
+    if (createdMs !== null && attendedMs !== null && attendedMs >= createdMs) {
+      diffMins = Math.floor((attendedMs - createdMs) / 60000);
+    }
+
+    if (diffMins >= 30) {
+      return "29 mins";
+    }
+    
+    if (diffMins < 0) diffMins = 0;
+    if (diffMins === 1) return "1 min";
+    return `${diffMins} mins`;
+  };
+
   const handleLoadCaseForUpdate = (cifNum: string) => {
     const cleanCif = cifNum.trim();
     if (!cleanCif) {
@@ -961,6 +1115,7 @@ export default function App() {
     }
     const found = cases.find(c => c.cif.trim().toUpperCase() === cleanCif.toUpperCase());
     if (found) {
+      const nowString = new Date().toLocaleDateString("en-GB") + ", " + new Date().toLocaleTimeString("en-GB", { hour12: false });
       setCaseCif(found.cif);
       setCaseAmount(found.amount);
       setCaseEventType(found.eventType);
@@ -974,17 +1129,38 @@ export default function App() {
       setCallResponse(found.callResponse);
       setResolution(found.resolution);
       setRemarks(found.remarks);
-      setFirstCallTime(found.firstCallTime || "");
-      setFirstCallRemarks(found.firstCallRemarks || "");
-      setSecondCallTime(found.secondCallTime || "");
-      setSecondCallRemarks(found.secondCallRemarks || "");
-      setThirdCallTime(found.thirdCallTime || "");
-      setThirdCallRemarks(found.thirdCallRemarks || "");
+
+      const hasFirst = Boolean(found.firstCallTime && found.firstCallTime.trim() !== "");
+      const hasSecond = Boolean(found.secondCallTime && found.secondCallTime.trim() !== "");
+
+      setFirstCallTime(found.firstCallTime || nowString);
+      setFirstCallRemarks(found.firstCallRemarks || "1st Call Logged");
+
+      if (hasSecond) {
+        // 2nd call is already filled -> new update automatically fills 3rd call timestamp & remarks!
+        setSecondCallTime(found.secondCallTime);
+        setSecondCallRemarks(found.secondCallRemarks || "2nd Call Logged");
+        setThirdCallTime(found.thirdCallTime || nowString);
+        setThirdCallRemarks(found.thirdCallRemarks || "3rd Call Attempt / Notes");
+        alert(`Case data loaded for CIF ${found.cif}. 1st & 2nd call information retained. 3rd Call timestamp & notes auto-filled.`);
+      } else if (hasFirst) {
+        setSecondCallTime(found.secondCallTime || nowString);
+        setSecondCallRemarks(found.secondCallRemarks || "2nd Call Attempt / Notes");
+        setThirdCallTime(found.thirdCallTime || "");
+        setThirdCallRemarks(found.thirdCallRemarks || "");
+        alert(`Case data loaded for CIF ${found.cif}. 1st call retained. 2nd Call timestamp & notes auto-filled.`);
+      } else {
+        setSecondCallTime("");
+        setSecondCallRemarks("");
+        setThirdCallTime("");
+        setThirdCallRemarks("");
+        alert(`Case data loaded for CIF ${found.cif}. Initial call timestamp auto-filled.`);
+      }
+
       setStatusAction(found.statusAction || "No status change...");
       setEscalateTeam(found.escalateTeam || "No / Local Agent Only");
       setCaseMode("UPDATE");
       setActiveTab("CASE");
-      alert(`Case data loaded for CIF ${found.cif}. Edit values in the sidebar.`);
     } else {
       alert(`No record found in database of cases for CIF: ${cleanCif}`);
     }
@@ -1274,194 +1450,28 @@ export default function App() {
   }, [fiSearchTerm]);
 
 
-  // --- 3. NSRC INTEGRATION STATES ---
-  const [nsrcCaseId, setNsrcCaseId] = useState("");
-  const [nsrcAccNum, setNsrcAccNum] = useState("");
-  const [nsrcCif, setNsrcCif] = useState("");
-  const [nsrcRegNo, setNsrcRegNo] = useState("");
-  const [nsrcName, setNsrcName] = useState("");
-  const [nsrcBlockType, setNsrcBlockType] = useState("");
-  const [nsrcBusinessUnit, setNsrcBusinessUnit] = useState("");
-  const [nsrcClassification, setNsrcClassification] = useState("");
-  const [nsrcBlockDesc, setNsrcBlockDesc] = useState("");
-  const [nsrcAmount, setNsrcAmount] = useState(""); // Disputed transaction amount
-  const [nsrcEarmarkAmount, setNsrcEarmarkAmount] = useState(""); // Frozen/Hold Earmark amount
-  const [nsrcEarmark, setNsrcEarmark] = useState("");
-  const [nsrcRemarks, setNsrcRemarks] = useState("");
-  const [nsrcReason, setNsrcReason] = useState("");
-  const [nsrcDateStamp, setNsrcDateStamp] = useState(() => {
-    const today = new Date();
-    return today.toISOString().split("T")[0]; // YYYY-MM-DD
-  });
 
-  // Automated populating Based on prefix '1' of NSRC account number!
-  useEffect(() => {
-    if (!nsrcAccNum) return;
-    
-    if (nsrcAccNum.trim().startsWith("1")) {
-      setNsrcBlockType("Account blocking, Acc Balance");
-      setNsrcBusinessUnit("AffinMax");
-      setNsrcClassification("Current");
-      setNsrcRegNo("20260109658");
-      setNsrcAmount("RM2,500.00");
-      setNsrcEarmarkAmount("RM1,450.00");
-      setNsrcEarmark("Yes");
-      setNsrcReason("SUSPECTED SCAM FUND TRACING");
-      
-      // format date stamps for code blocks
-      const cleanDate = nsrcDateStamp || new Date().toISOString().split("T")[0];
-      const stampParts = cleanDate.split("-"); // [YYYY, MM, DD]
-      const ddmmyyyy = stampParts.length === 3 ? `${stampParts[2]}${stampParts[1]}${stampParts[0]}` : "12062026";
-      const formattedDateText = stampParts.length === 3 ? `${stampParts[2]}/${stampParts[1]}/${stampParts[0]}` : "12/06/2026";
-      
-      setNsrcBlockDesc(`Total account block [${formattedDateText}]`);
-      setNsrcRemarks(`SUSPECTED FRAUD SCAM NSRC DATED ${ddmmyyyy}`);
-    }
-  }, [nsrcAccNum, nsrcDateStamp]);
-
-  const handleSaveNSRC = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!nsrcCif || !nsrcName || !nsrcAccNum) {
-      alert("NSRC report registration requires Account number, CIF, and Name inputs.");
-      return;
-    }
-
-    const newNSRC: NSRCEntry = {
-      id: "nsrc-" + Date.now(),
-      caseId: nsrcCaseId.trim() || ("NSRC" + Math.floor(100000 + Math.random() * 900000)),
-      cif: nsrcCif,
-      regNo: nsrcRegNo || "20260109658",
-      name: nsrcName.toUpperCase(),
-      accountNumber: nsrcAccNum,
-      accountBlockingType: nsrcBlockType || "Account Block - General",
-      businessUnit: nsrcBusinessUnit || "Retail Division",
-      accountClassification: nsrcClassification || "Savings",
-      statusBlockDesc: nsrcBlockDesc || `Account locked on registration`,
-      amount: nsrcAmount || "RM0.00",
-      earmarkAmount: nsrcEarmarkAmount || "RM0.00",
-      earmark: nsrcEarmark || "No",
-      remarks: nsrcRemarks || "NSRC SUSPECT BANNER ACTIVATED",
-      reason: nsrcReason || "NSRC REQUESTED",
-      dateStamp: nsrcDateStamp,
-      createdAt: new Date().toISOString(),
-      officerPsid: currentOfficer.psid
-    };
-
-    try {
-      await setDoc(doc(db, "nsrcEntries", newNSRC.id), newNSRC);
-      alert("NSRC Report successfully saved and synced across all terminals.");
-    } catch (error) {
-      console.error("Firestore error saving NSRC:", error);
-      setNsrcEntries([newNSRC, ...nsrcEntries]);
-      alert("NSRC Report saved locally.");
-    }
-    
-    // reset NSRC inputs
-    setNsrcCaseId("");
-    setNsrcAccNum("");
-    setNsrcCif("");
-    setNsrcRegNo("");
-    setNsrcName("");
-    setNsrcBlockType("");
-    setNsrcBusinessUnit("");
-    setNsrcClassification("");
-    setNsrcBlockDesc("");
-    setNsrcAmount("");
-    setNsrcEarmarkAmount("");
-    setNsrcEarmark("");
-    setNsrcRemarks("");
-    setNsrcReason("");
-  };
-
-  // Real-time lookup for CIF/Account in standard case records or NSRC records for seamless auto-fill
-  useEffect(() => {
-    const searchCif = nsrcCif.trim();
-    const searchAcc = nsrcAccNum.trim();
-    
-    if (!searchCif && !searchAcc) {
-      setAutofillSuggestion(null);
-      return;
-    }
-    
-    let matchObj: any = null;
-    let type: "CASE" | "NSRC" = "CASE";
-    
-    if (searchCif && searchCif.length >= 3) {
-      const foundNsrc = nsrcEntries.find(n => n.cif === searchCif);
-      if (foundNsrc) {
-        matchObj = foundNsrc;
-        type = "NSRC";
-      } else {
-        const foundCase = cases.find(c => c.cif === searchCif);
-        if (foundCase) {
-          matchObj = foundCase;
-          type = "CASE";
-        }
-      }
-    } else if (searchAcc && searchAcc.length >= 4) {
-      const foundNsrc = nsrcEntries.find(n => n.accountNumber === searchAcc);
-      if (foundNsrc) {
-        matchObj = foundNsrc;
-        type = "NSRC";
-      }
-    }
-    
-    if (matchObj) {
-      setAutofillSuggestion({
-        type: type,
-        cif: matchObj.cif,
-        name: type === "NSRC" ? matchObj.name : ("VALUED CLIENT " + matchObj.cif),
-        accountNumber: type === "NSRC" ? matchObj.accountNumber : ("10" + matchObj.cif + "99"),
-        blockType: type === "NSRC" ? matchObj.accountBlockingType : "Account blocking, Acc Balance",
-        businessUnit: type === "NSRC" ? matchObj.businessUnit : "Retail Division",
-        classification: type === "NSRC" ? matchObj.accountClassification : "Savings",
-        blockDesc: type === "NSRC" ? matchObj.statusBlockDesc : `Total account block [${new Date().toLocaleDateString("en-GB")}]`,
-        remarks: type === "NSRC" ? matchObj.remarks : `SUSPECTED FRAUD SCAM NSRC DATED ${new Date().toLocaleDateString("en-GB").replace(/\//g,"")}`,
-        regNo: type === "NSRC" ? (matchObj.regNo || "20260109658") : "20260109658",
-        earmarkAmount: type === "NSRC" ? (matchObj.earmarkAmount || "RM1,450.00") : `RM${matchObj.amount || "1,450.00"}`,
-        earmark: type === "NSRC" ? (matchObj.earmark || "Yes") : "Yes",
-        reason: type === "NSRC" ? (matchObj.reason || "SUSPECTED SCAM FUND TRACING") : "SUSPECTED SCAM FUND TRACING"
-      });
-    } else {
-      setAutofillSuggestion(null);
-    }
-  }, [nsrcCif, nsrcAccNum, cases, nsrcEntries]);
-
-  const handleApplyAutofill = () => {
-    if (!autofillSuggestion) return;
-    setNsrcCif(autofillSuggestion.cif);
-    setNsrcName(autofillSuggestion.name.toUpperCase());
-    setNsrcAccNum(autofillSuggestion.accountNumber);
-    setNsrcBlockType(autofillSuggestion.blockType);
-    setNsrcBusinessUnit(autofillSuggestion.businessUnit);
-    setNsrcClassification(autofillSuggestion.classification);
-    setNsrcBlockDesc(autofillSuggestion.blockDesc);
-    setNsrcRemarks(autofillSuggestion.remarks);
-    setNsrcRegNo(autofillSuggestion.regNo || "");
-    setNsrcEarmarkAmount(autofillSuggestion.earmarkAmount || "");
-    setNsrcEarmark(autofillSuggestion.earmark || "");
-    setNsrcReason(autofillSuggestion.reason || "");
-    setAutofillSuggestion(null);
-  };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError("");
-    const psidInput = loginPsid.trim().toUpperCase();
-    
-    // Restriction: Only authorized users can access this system
-    const ALLOWED_PSIDS = ["PS101435", "PS101436", "PS101477", "PS101405", "PS101480"];
-    const isAuthorized = ALLOWED_PSIDS.includes(psidInput) || staffAccounts.some(s => s.psid.toUpperCase() === psidInput);
-    if (!isAuthorized) {
-      setLoginError("Access Denied: This PSID is not authorized to access this system.");
+    const inputVal = loginPsid.trim().toLowerCase();
+    if (!inputVal) {
+      setLoginError("Please enter your Officer PSID or Corporate Email.");
       return;
     }
 
-    const account = staffAccounts.find(s => s.psid.toUpperCase() === psidInput);
+    // Search staffAccounts by PSID or Email match
+    const account = staffAccounts.find(s => 
+      s.psid.toLowerCase() === inputVal || 
+      (s.email && s.email.toLowerCase() === inputVal)
+    );
+
     if (!account) {
-      setLoginError("Invalid PSID. Contact administrator for compliance clearance.");
+      setLoginError("Access Denied: Email or PSID not authorized to access this system.");
       return;
     }
+
     if (account.password !== loginPassword) {
       setLoginError("Incorrect password. Default first-time password is 'Affin123'.");
       return;
@@ -1474,7 +1484,7 @@ export default function App() {
       name: account.name,
       action: "LOGIN",
       timestamp: new Date().toLocaleString(),
-      details: `Session Authenticated (Role: ${account.role === "Admin" ? "Root Admin" : "Officer"})`
+      details: `Session Authenticated (${account.email || account.psid} - Role: ${account.role === "Admin" ? "Root Admin" : "Officer"})`
     };
     try {
       await setDoc(doc(db, "sessionLogs", newLog.id), newLog);
@@ -1735,15 +1745,11 @@ export default function App() {
 
   const getDatabaseEstimatedStorage = () => {
     let casesEstBytes = 0;
-    let nsrcEstBytes = 0;
     let logsEstBytes = 0;
     let staffEstBytes = 0;
 
     cases.forEach(item => {
       casesEstBytes += JSON.stringify(item).length + 32;
-    });
-    nsrcEntries.forEach(item => {
-      nsrcEstBytes += JSON.stringify(item).length + 32;
     });
     sessionLogs.forEach(item => {
       logsEstBytes += JSON.stringify(item).length + 32;
@@ -1752,15 +1758,13 @@ export default function App() {
       staffEstBytes += JSON.stringify(item).length + 32;
     });
 
-    const totalBytes = casesEstBytes + nsrcEstBytes + logsEstBytes + staffEstBytes;
+    const totalBytes = casesEstBytes + logsEstBytes + staffEstBytes;
     return {
       casesBytes: casesEstBytes,
-      nsrcBytes: nsrcEstBytes,
       logsBytes: logsEstBytes,
       staffBytes: staffEstBytes,
       totalBytes: totalBytes,
       casesCount: cases.length,
-      nsrcCount: nsrcEntries.length,
       logsCount: sessionLogs.length,
       staffCount: staffAccounts.length
     };
@@ -1816,28 +1820,6 @@ export default function App() {
     setCasesExported(true);
   };
 
-  const handleExportNsrc = () => {
-    const headers = [
-      "Report ID", "Link Case ID", "CIF", "Registration/ID No", "Beneficiary Name", "Account Number", 
-      "Block Type Mode", "Corporate segment", "Account Class Type", "Disciplinary Action Taken", 
-      "Report Disputed Amount", "Earmarked Amount", "Earmarking Action", "Staff Narrative Remarks", 
-      "Verification Reason", "Report Timestamp", "Created By PSID"
-    ];
-    
-    // Filter out clear marker
-    const exportableNsrc = nsrcEntries.filter(n => n.id !== "clear_marker");
-    
-    const rows = exportableNsrc.map(n => [
-      n.id, n.caseId, n.cif, n.regNo, n.name, n.accountNumber, 
-      n.accountBlockingType, n.businessUnit, n.accountClassification, n.statusBlockDesc, 
-      n.amount, n.earmarkAmount, n.earmark, n.remarks, 
-      n.reason, n.dateStamp, n.officerPsid || "System Default"
-    ]);
-    
-    downloadCSV(headers, rows, `NSRC_Reports_Ledger_${new Date().toISOString().slice(0, 10)}`);
-    setNsrcExported(true);
-  };
-
   const handleGeneratePurgeReceipt = () => {
     const generatedRefCode = `OWL-RELEASE-${Math.floor(100000 + Math.random() * 900000)}`;
     setPurgeReceiptCode(generatedRefCode);
@@ -1860,7 +1842,6 @@ export default function App() {
 
     try {
       const originalCasesCount = cases.filter(c => c.id !== "clear_marker").length;
-      const originalNsrcCount = nsrcEntries.filter(n => n.id !== "clear_marker").length;
 
       // 1. Establish clear marker in cases table
       await setDoc(doc(db, "cases", "clear_marker"), { id: "clear_marker", isMarker: true });
@@ -1871,16 +1852,7 @@ export default function App() {
         }
       }
 
-      // 2. Establish clear marker in nsrcEntries table
-      await setDoc(doc(db, "nsrcEntries", "clear_marker"), { id: "clear_marker", isMarker: true });
-      // Delete all active NSRC entries (excluding custom markers)
-      for (const n of nsrcEntries) {
-        if (n.id !== "clear_marker") {
-          await deleteDoc(doc(db, "nsrcEntries", n.id));
-        }
-      }
-
-      // 3. Register real-time purge event log
+      // 2. Register real-time purge event log
       const logId = `log-${Date.now()}`;
       const purgeLog = {
         id: logId,
@@ -1888,7 +1860,7 @@ export default function App() {
         name: currentUser?.name || "Root Admin",
         action: "DATABASE_PURGE",
         timestamp: new Date().toLocaleString(),
-        details: `DATABASE RELEASE OPERATION: Executed by Root Admin ${currentUser?.psid}. Purged ${originalCasesCount} Case records and ${originalNsrcCount} NSRC logs. Storage released back to Spark Capacity limits successfully.`
+        details: `DATABASE RELEASE OPERATION: Executed by Root Admin ${currentUser?.psid}. Purged ${originalCasesCount} Case records. Storage released back to Spark Capacity limits successfully.`
       };
       await setDoc(doc(db, "sessionLogs", logId), purgeLog);
 
@@ -1900,10 +1872,9 @@ export default function App() {
       setAcknowledgedBackup_2(false);
       setAcknowledgedBackup_3(false);
       setCasesExported(false);
-      setNsrcExported(false);
       
       setPurgeStatusMessage("DATABASE DECOMMISSION SUCCESSFUL. Storage cleared completely!");
-      alert(`Wipe Successful: Purged ${originalCasesCount} cases and ${originalNsrcCount} regulatory block reports successfully. Total memory released to Spark limits!`);
+      alert(`Wipe Successful: Purged ${originalCasesCount} cases successfully. Total memory released to Spark limits!`);
     } catch (err: any) {
       console.error(err);
       setPurgeStatusMessage(`CRITICAL EXCEPTION THROTTLED: ${err.message || err}`);
@@ -1930,74 +1901,126 @@ export default function App() {
     }
   };
 
-  const [nsrcToExport, setNsrcToExport] = useState<NSRCEntry | null>(null);
-  const [exportPassword, setExportPassword] = useState("");
-  const [passwordModalError, setPasswordModalError] = useState("");
-
-  const triggerNSRCExport = (entry: NSRCEntry) => {
-    setNsrcToExport(entry);
-    setExportPassword("");
-    setPasswordModalError("");
-  };
-
-  const handlePasswordModalSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (exportPassword === "Affin123") {
-      if (!nsrcToExport) return;
-      
-      const defaultFilename = `NSRC_${nsrcToExport.name.trim().replace(/[^a-zA-Z0-9_\-\s]/g, "")}_(${nsrcToExport.cif.trim()}).xlsx`;
-      
-      // Close decryption password sheet
-      setNsrcToExport(null);
-      
-      // Open our location destination verification modal!
-      setExcelExportPending({
-        type: "NSRC",
-        data: nsrcToExport,
-        defaultFilename,
-        customFilename: defaultFilename
-      });
-    } else {
-      setPasswordModalError("Access Denied: Incorrect password code.");
-    }
-  };
-
-  const handleExportNSRCExcel = (entry: NSRCEntry) => {
-    triggerNSRCExport(entry);
-  };
-
   const handleConfirmExcelExport = async () => {
     if (!excelExportPending) return;
-    const { type, data, customFilename } = excelExportPending;
+    const { data, customFilename } = excelExportPending;
     
     // Clear pending state
     setExcelExportPending(null);
 
-    if (type === "NSRC") {
-      const { downloadProtectedNSRCExcel } = await import("./excelExport");
-      const res = await downloadProtectedNSRCExcel(data, customFilename);
-      if (res.success) {
-        alert(`Success: Secure NSRC file decrypted and exported successfully as "${res.filename}"!`);
-      } else if (!res.cancelled) {
-        alert("Error generating workbook compilation.");
-      }
-    } else {
-      const { downloadFMSDatabaseExcel } = await import("./excelExport");
-      const res = await downloadFMSDatabaseExcel(data, customFilename);
-      if (res.success) {
-        alert(`Success: FMS Database exported successfully as "${res.filename}"!`);
-      } else if (!res.cancelled) {
-        alert("Error exporting FMS cases.");
-      }
+    const { downloadFMSDatabaseExcel } = await import("./excelExport");
+    const res = await downloadFMSDatabaseExcel(data, customFilename);
+    if (res.success) {
+      alert(`Success: FMS Database exported successfully as "${res.filename}"!`);
+    } else if (!res.cancelled) {
+      alert("Error exporting FMS cases.");
     }
   };
 
 
-  // --- 4. DYNAMIC ANALYTICS CALCULATIONS ---
+  // --- 4. DYNAMIC EXECUTIVE & BUSINESS INSIGHT CALCULATIONS ---
   const totalFinancialValue = cases.reduce((sum, c) => sum + Number(c.amount || 0), 0);
   const totalFreudHighlight = cases.filter(c => c.resolution.toLowerCase().includes("fraud") || c.remarks.toLowerCase().includes("fraud")).length;
   const uniqueCifs = new Set(cases.map(c => c.cif)).size;
   const totalResolved = cases.filter(c => c.callResponse && c.resolution).length;
+
+  // Turnaround Time (TAT) in Minutes for each case
+  const caseTATList = cases.map(c => {
+    const startMs = parseFmsToMs(c.caseCreatedTime || c.createdAt);
+    const endMs = parseFmsToMs(c.caseModifiedTime || c.firstCallTime || c.caseAssignedTime || c.createdAt);
+    if (startMs !== null && endMs !== null && endMs >= startMs) {
+      const diffMins = Math.round(((endMs - startMs) / 60000) * 10) / 10;
+      return { caseItem: c, mins: diffMins < 0 ? 0 : diffMins };
+    }
+    return { caseItem: c, mins: 0 };
+  });
+
+  const totalTATMinutesSum = caseTATList.reduce((acc, curr) => acc + curr.mins, 0);
+  const avgTATMinutes = caseTATList.length > 0 ? (totalTATMinutesSum / caseTATList.length).toFixed(1) : "0.0";
+  
+  // SLA Performance Breakdown (<1m, 1-5m, 5-15m, >15m)
+  const tatTierInstant = caseTATList.filter(t => t.mins <= 1).length;
+  const tatTierStandard = caseTATList.filter(t => t.mins > 1 && t.mins <= 5).length;
+  const tatTierExtended = caseTATList.filter(t => t.mins > 5 && t.mins <= 15).length;
+  const tatTierBreached = caseTATList.filter(t => t.mins > 15).length;
+  const slaMetCount = tatTierInstant + tatTierStandard;
+  const slaCompliancePct = caseTATList.length > 0 ? Math.round((slaMetCount / caseTATList.length) * 100) : 100;
+
+  // Financial Risk & Exposure
+  const fraudCasesList = cases.filter(c => {
+    const r = (c.resolution || "").toLowerCase();
+    return r.includes("fraud") || r.includes("suspect");
+  });
+  const fraudPreventedAmount = fraudCasesList.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+
+  const genuineCasesList = cases.filter(c => {
+    const r = (c.resolution || "").toLowerCase();
+    return r.includes("genuine") || r.includes("assume");
+  });
+  const genuineClearedAmount = genuineCasesList.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+  const fraudConversionRate = cases.length > 0 ? ((fraudCasesList.length / cases.length) * 100).toFixed(1) : "0.0";
+
+  // Detailed Resolution Category Counts
+  const assumeGenuineCount = cases.filter(c => {
+    const r = (c.resolution || "").toLowerCase();
+    return r.includes("assume") || (r.includes("genuine") && !r.includes("confirm"));
+  }).length;
+
+  const confirmGenuineCount = cases.filter(c => {
+    const r = (c.resolution || "").toLowerCase();
+    return r.includes("confirm") && r.includes("genuine");
+  }).length;
+
+  const suspectedFraudCount = cases.filter(c => {
+    const r = (c.resolution || "").toLowerCase();
+    return r.includes("suspect");
+  }).length;
+
+  const confirmFraudCount = cases.filter(c => {
+    const r = (c.resolution || "").toLowerCase();
+    return r.includes("confirm") && r.includes("fraud");
+  }).length;
+
+  // Call Channels & Reach Efficiency
+  const manualCallCount = cases.filter(c => {
+    const cr = (c.callResponse || "").toLowerCase();
+    const r = (c.resolution || "").toLowerCase();
+    return cr.includes("manual") || cr.includes("cc") || r.includes("manual") || r.includes("cc");
+  }).length;
+
+  const contactedCallCount = cases.filter(c => {
+    const cr = (c.callResponse || "").toLowerCase();
+    const r = (c.resolution || "").toLowerCase();
+    return (cr.includes("contacted") || cr.includes("close screen") || r.includes("contacted")) && !cr.includes("unable");
+  }).length;
+
+  const unableCallCount = cases.filter(c => {
+    const cr = (c.callResponse || "").toLowerCase();
+    const r = (c.resolution || "").toLowerCase();
+    return cr.includes("unable") || cr.includes("no contact") || r.includes("unable");
+  }).length;
+
+  const contactReachRate = (contactedCallCount + unableCallCount) > 0 
+    ? Math.round((contactedCallCount / (contactedCallCount + unableCallCount)) * 100) 
+    : 0;
+
+  // Hourly Activity Profile (08:00 to 18:00)
+  const hourlyBucketCounts: { [hourStr: string]: number } = {};
+  for (let h = 8; h <= 18; h++) {
+    const hrKey = String(h).padStart(2, "0") + ":00";
+    hourlyBucketCounts[hrKey] = 0;
+  }
+  cases.forEach(c => {
+    const ms = parseFmsToMs(c.caseCreatedTime || c.createdAt);
+    if (ms !== null) {
+      const d = new Date(ms);
+      const hr = d.getHours();
+      if (hr >= 8 && hr <= 18) {
+        const hrKey = String(hr).padStart(2, "0") + ":00";
+        hourlyBucketCounts[hrKey] = (hourlyBucketCounts[hrKey] || 0) + 1;
+      }
+    }
+  });
 
   // Filter cases & NSRC by CIF search
   const filteredCases = cases.filter(c => {
@@ -2015,28 +2038,6 @@ export default function App() {
       divisionMatch = c.assignedOfficer.toUpperCase() === currentOfficer.psid.toUpperCase();
     } else if (dbFilterPsid !== "ALL") {
       divisionMatch = c.assignedOfficer.toUpperCase() === dbFilterPsid.toUpperCase();
-    }
-
-    return cifMatch && divisionMatch;
-  });
-
-  const filteredNSRC = nsrcEntries.filter(n => {
-    let cifMatch = true;
-    if (dbSearchCif) {
-      cifMatch = n.cif.includes(dbSearchCif) || 
-                 n.accountNumber.includes(dbSearchCif) || 
-                 n.name.toLowerCase().includes(dbSearchCif.toLowerCase()) ||
-                 (n.caseId && n.caseId.toLowerCase().includes(dbSearchCif.toLowerCase()));
-    } else if (globalSearchCif) {
-      cifMatch = n.cif.includes(globalSearchCif) || 
-                 n.accountNumber.includes(globalSearchCif) || 
-                 n.name.toLowerCase().includes(globalSearchCif.toLowerCase());
-    }
-
-    let divisionMatch = true;
-    if (dbDivision === "PERSONAL") {
-      // Show seed entries (which don't have officerPsid field) OR entries created by the logged in officer
-      divisionMatch = !n.officerPsid || n.officerPsid.toUpperCase() === currentOfficer.psid.toUpperCase();
     }
 
     return cifMatch && divisionMatch;
@@ -2167,15 +2168,42 @@ export default function App() {
 
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div>
-              <label className="block text-[10px] uppercase tracking-wider text-slate-500 mb-1 font-semibold font-sans">Officer PSID</label>
+              <label className="block text-[10px] uppercase tracking-wider text-slate-500 mb-1 font-semibold font-sans">Officer PSID or Corporate Email</label>
               <input
                 type="text"
                 required
                 value={loginPsid}
                 onChange={(e) => setLoginPsid(e.target.value)}
-                placeholder="e.g. PS101435"
+                placeholder="wanahmadzaim@affingroup.com or PS101435"
                 className="w-full bg-[#f5f5f7] border border-[#e8e8ed] rounded-lg px-3 py-2 text-xs text-[#1d1d1f] placeholder-slate-400 focus:outline-none focus:border-[#0071e3] focus:ring-4 focus:ring-blue-500/10 transition-all font-mono"
               />
+              
+              {/* Quick Officer Email Selector Pills */}
+              <div className="mt-2.5">
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Quick Select Corporate Account:</span>
+                <div className="flex flex-wrap gap-1">
+                  {[
+                    { email: "wanahmadzaim@affingroup.com", psid: "PS101435", name: "Zaim" },
+                    { email: "muhammad.faris@affingroup.com", psid: "PS101436", name: "Faris" },
+                    { email: "nabil@affingroup.com", psid: "PS101477", name: "Nabil" },
+                    { email: "shahiranajatul@affingroup.com", psid: "PS101405", name: "Naja" },
+                    { email: "izzat.daniel@affingroup.com", psid: "PS101480", name: "Izzat" }
+                  ].map(usr => (
+                    <button
+                      key={usr.psid}
+                      type="button"
+                      onClick={() => {
+                        setLoginPsid(usr.email);
+                        setLoginPassword("Affin123");
+                      }}
+                      className="text-[9px] bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 border border-slate-200 rounded-md px-1.5 py-0.5 font-mono transition-all cursor-pointer"
+                      title={`${usr.name} (${usr.psid}) - ${usr.email}`}
+                    >
+                      {usr.name} ({usr.psid})
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
             
             <div>
@@ -2317,8 +2345,8 @@ export default function App() {
         {/* APPLE SEGMENTED CONTROL TAB BAR */}
         <nav className="bg-[#e3e3e6] p-0.5 rounded-lg flex space-x-0.5 items-center border border-black/5">
           {((currentUser?.role === "Admin")
-            ? ["DASHBOARD", "CASE", "DATABASE", "SEARCH FI", "NSRC", "ADMIN"] as const
-            : ["DASHBOARD", "CASE", "DATABASE", "SEARCH FI", "NSRC"] as const
+            ? ["DASHBOARD", "CASE", "DATABASE", "SEARCH FI", "ADMIN"] as const
+            : ["DASHBOARD", "CASE", "DATABASE", "SEARCH FI"] as const
           ).map((tab) => {
             const isActive = activeTab === tab;
             return (
@@ -2384,369 +2412,723 @@ export default function App() {
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="space-y-4"
+              className="space-y-4 font-sans"
             >
-              {/* TOP METRICS GRID */}
+              {/* EXECUTIVE DASHBOARD COMMAND BAR */}
+              <div className="bg-white px-5 py-3.5 rounded-2xl border border-[#e8e8ed] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center space-x-3">
+                  <div className="bg-[#0071e3]/10 p-2 rounded-xl text-[#0071e3]">
+                    <BarChart3 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h3 className="font-bold text-sm text-slate-900 tracking-tight">FMS Operational Business Intelligence</h3>
+                      <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-full border border-emerald-200 flex items-center space-x-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>Live Database Analytics</span>
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Real-time Turnaround Time (TAT), SLA benchmarks, and fraud risk exposure insights</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-3 text-xs">
+                  <div className="bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl flex items-center space-x-2">
+                    <Target className="h-4 w-4 text-[#0071e3]" />
+                    <span className="font-semibold text-slate-700">SLA Target: <span className="font-mono font-bold text-slate-900">&lt; 5.0 mins</span></span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${slaCompliancePct >= 90 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                      {slaCompliancePct}% SLA Met
+                    </span>
+                  </div>
+
+                  <div className="hidden sm:flex items-center space-x-1 text-[11px] text-slate-400 font-mono">
+                    <Clock className="h-3.5 w-3.5" />
+                    <span>Avg TAT: <strong className="text-slate-800">{avgTATMinutes} mins</strong></span>
+                  </div>
+                </div>
+              </div>
+
+              {/* TOP 4 KEY BUSINESS INTELLIGENCE KPI CARDS */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 
-                {/* 1. FINANCIAL VALUE */}
-                <div id="stat-financial-value" className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs hover:shadow-sm transition-all duration-200">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-sans">Day Financial Value</p>
-                      <h3 className="text-2xl font-bold tracking-tight mt-1 text-slate-900 font-sans">
-                        RM {totalFinancialValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </h3>
+                {/* 1. FINANCIAL VOLUME & EXPOSURE */}
+                <div id="stat-financial-value" className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Intake Financial Volume</p>
+                        <h3 className="text-2xl font-bold tracking-tight mt-1 text-slate-900 font-mono">
+                          RM {totalFinancialValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </h3>
+                      </div>
+                      <div className="bg-[#0071e3]/10 p-2.5 rounded-2xl text-[#0071e3]">
+                        <Coins className="h-5 w-5" />
+                      </div>
                     </div>
-                    <div className="bg-[#0071e3]/10 p-2 rounded-xl text-[#0071e3] shadow-3xs">
-                      <Coins className="h-4.5 w-4.5" />
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+                      <div className="bg-red-50/80 border border-red-100 p-2 rounded-xl">
+                        <span className="text-red-600 font-bold block">Fraud Blocked</span>
+                        <span className="font-mono font-bold text-red-900 text-[11px]">RM {fraudPreventedAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                      </div>
+                      <div className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl">
+                        <span className="text-emerald-600 font-bold block">Genuine Cleared</span>
+                        <span className="font-mono font-bold text-emerald-900 text-[11px]">RM {genuineClearedAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                      </div>
                     </div>
                   </div>
-                  <div className="mt-2.5 text-[10px] text-slate-500 flex items-center space-x-1.5 font-sans">
-                    <span className="text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-100">RM {cases.length > 0 ? (totalFinancialValue / cases.length).toFixed(0) : 0} avg</span>
-                    <span>per raw ingestion</span>
+
+                  {/* Financial Bar Ratio */}
+                  <div className="mt-3">
+                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                      <div 
+                        className="bg-red-500 h-full" 
+                        style={{ width: `${totalFinancialValue > 0 ? (fraudPreventedAmount / totalFinancialValue) * 100 : 0}%` }}
+                        title="Fraud Exposure %"
+                      />
+                      <div 
+                        className="bg-emerald-500 h-full" 
+                        style={{ width: `${totalFinancialValue > 0 ? (genuineClearedAmount / totalFinancialValue) * 100 : 0}%` }}
+                        title="Genuine Cleared %"
+                      />
+                    </div>
                   </div>
                 </div>
 
-                {/* 2. FRAUDS LOCKED */}
-                <div id="stat-frauds-highlight" className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs hover:shadow-sm transition-all duration-200">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-sans">Day Frauds Highlight</p>
-                      <h3 className="text-2xl font-bold tracking-tight mt-1 text-[#ff3b30] font-sans">
-                        {totalFreudHighlight}
-                      </h3>
+                {/* 2. AVERAGE TURNAROUND TIME (TAT) */}
+                <div id="stat-tat-performance" className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Avg Turnaround Time (TAT)</p>
+                        <div className="flex items-baseline space-x-1.5 mt-1">
+                          <h3 className="text-2xl font-bold tracking-tight text-slate-900 font-mono">
+                            {avgTATMinutes}
+                          </h3>
+                          <span className="text-xs font-semibold text-slate-500">mins / case</span>
+                        </div>
+                      </div>
+                      <div className="bg-emerald-50 p-2.5 rounded-2xl text-emerald-600">
+                        <Zap className="h-5 w-5" />
+                      </div>
                     </div>
-                    <div className="bg-[#ff3b30]/10 p-2 rounded-xl text-[#ff3b30] shadow-3xs">
-                      <AlertTriangle className="h-4.5 w-4.5" />
+
+                    <div className="mt-3 space-y-1.5">
+                      <div className="flex justify-between items-center text-[10px]">
+                        <span className="text-slate-500 font-medium">SLA Compliance (&lt; 5m)</span>
+                        <span className="font-bold font-mono text-emerald-600">{slaCompliancePct}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                        <div className="bg-emerald-500 h-full" style={{ width: `${slaCompliancePct}%` }}></div>
+                        <div className="bg-amber-400 h-full" style={{ width: `${100 - slaCompliancePct}%` }}></div>
+                      </div>
                     </div>
                   </div>
-                  <div className="mt-2.5 text-[10px] text-slate-500 flex items-center space-x-1.5 font-sans">
-                    <span className="text-[#ff3b30] font-bold bg-red-50 px-1.5 py-0.5 rounded-md border border-red-100">Risk Mitigation:</span>
-                    <span>{cases.filter(c => c.statusAction === "LOCKED" && c.resolution.toLowerCase().includes("fraud")).length} locked</span>
+
+                  <div className="mt-3 text-[10px] text-slate-500 flex justify-between items-center pt-2 border-t border-slate-100">
+                    <span>Instant (&le;1m): <strong className="text-slate-800">{tatTierInstant}</strong></span>
+                    <span>Standard (1-5m): <strong className="text-slate-800">{tatTierStandard}</strong></span>
+                    <span>Slow (&gt;5m): <strong className="text-amber-600">{tatTierExtended + tatTierBreached}</strong></span>
                   </div>
                 </div>
 
-                {/* 3. TOTAL UNIQUE CIFS */}
-                <div id="stat-total-cifs" className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs hover:shadow-sm transition-all duration-200">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-sans">Day Total CIFs</p>
-                      <h3 className="text-2xl font-bold tracking-tight mt-1 text-slate-900 font-sans">
-                        {uniqueCifs}
-                      </h3>
+                {/* 3. FRAUD DETECTION & RISK CONVERSION */}
+                <div id="stat-frauds-highlight" className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Fraud Detection Index</p>
+                        <h3 className="text-2xl font-bold tracking-tight mt-1 text-[#ff3b30] font-mono">
+                          {suspectedFraudCount + confirmFraudCount} <span className="text-xs font-normal text-slate-400">Cases</span>
+                        </h3>
+                      </div>
+                      <div className="bg-[#ff3b30]/10 p-2.5 rounded-2xl text-[#ff3b30]">
+                        <ShieldAlert className="h-5 w-5" />
+                      </div>
                     </div>
-                    <div className="bg-indigo-50 p-2 rounded-xl text-indigo-600 shadow-3xs">
-                      <UserCheck className="h-4.5 w-4.5" />
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+                      <div className="bg-red-50 border border-red-100 p-2 rounded-xl text-center">
+                        <span className="text-red-500 font-bold block">Confirmed</span>
+                        <span className="font-mono font-bold text-red-900 text-xs">{confirmFraudCount}</span>
+                      </div>
+                      <div className="bg-amber-50 border border-amber-100 p-2 rounded-xl text-center">
+                        <span className="text-amber-600 font-bold block">Suspected</span>
+                        <span className="font-mono font-bold text-amber-900 text-xs">{suspectedFraudCount}</span>
+                      </div>
                     </div>
                   </div>
-                  <div className="mt-3.5 text-[10px] text-slate-400 font-sans">
-                    <span>Active client targets flagged in logs</span>
+
+                  <div className="mt-3 text-[10px] text-slate-500 flex items-center justify-between pt-2 border-t border-slate-100">
+                    <span>Fraud Rate of Intake:</span>
+                    <span className="font-bold text-red-600 font-mono">{fraudConversionRate}%</span>
                   </div>
                 </div>
 
-                {/* 4. TOTAL RESOLVED */}
-                <div id="stat-resolved-cases" className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs hover:shadow-sm transition-all duration-200">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-sans">Day Resolved Cases</p>
-                      <h3 className="text-2xl font-bold tracking-tight mt-1 text-[#34c759] font-sans">
-                        {totalResolved}
-                      </h3>
+                {/* 4. CONTACT & RESOLUTION EFFICIENCY */}
+                <div id="stat-resolved-cases" className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Contact Reach Rate</p>
+                        <h3 className="text-2xl font-bold tracking-tight mt-1 text-teal-600 font-mono">
+                          {contactReachRate}%
+                        </h3>
+                      </div>
+                      <div className="bg-teal-50 p-2.5 rounded-2xl text-teal-600">
+                        <PhoneCall className="h-5 w-5" />
+                      </div>
                     </div>
-                    <div className="bg-[#34c759]/10 p-2 rounded-xl text-[#34c759] shadow-3xs">
-                      <CheckCircle className="h-4.5 w-4.5" />
+
+                    <div className="mt-3 space-y-1.5 text-[10px]">
+                      <div className="flex justify-between text-slate-600">
+                        <span>Contacted: <strong className="text-teal-700 font-mono">{contactedCallCount}</strong></span>
+                        <span>Unable: <strong className="text-slate-500 font-mono">{unableCallCount}</strong></span>
+                        <span>Manual: <strong className="text-indigo-600 font-mono">{manualCallCount}</strong></span>
+                      </div>
+                      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                        <div className="bg-teal-500 h-full" style={{ width: `${contactReachRate}%` }}></div>
+                        <div className="bg-slate-300 h-full" style={{ width: `${100 - contactReachRate}%` }}></div>
+                      </div>
                     </div>
                   </div>
-                  <div className="mt-2.5 text-[10px] text-slate-500 flex items-center space-x-1.5 font-sans">
-                    <span className="bg-[#34c759]/5 border border-[#34c759]/20 px-1.5 py-0.5 rounded-md font-semibold text-[#34c759]">{Math.round((totalResolved / (cases.length || 1)) * 100)}%</span>
-                    <span>resolution response rate</span>
+
+                  <div className="mt-3 text-[10px] text-slate-500 flex justify-between items-center pt-2 border-t border-slate-100">
+                    <span>Resolved Ratio:</span>
+                    <span className="font-bold text-slate-800 font-mono">{totalResolved} / {cases.length} ({Math.round((totalResolved / (cases.length || 1)) * 100)}%)</span>
                   </div>
                 </div>
 
               </div>
 
-              {/* DASHBOARD trend visualizations */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                
-                {/* Visualizer 1 - CHRONOLOGICAL CASES DAILY TREND (SHARP LINE GRAPH) */}
-                <div className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs lg:col-span-2">
-                  <div className="flex items-center justify-between pb-3.5 border-b border-[#f5f5f7]">
-                    <div>
-                      <h4 className="font-sans font-semibold text-xs text-slate-800 uppercase tracking-wider">Total Case vs Each Day</h4>
-                      <p className="text-[10px] text-slate-400 font-sans mt-0.5">Daily cases timeline since June 14, 2026</p>
-                    </div>
-                    <span className="text-[9px] bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-md font-sans font-semibold text-amber-700 uppercase tracking-wide">Live Timeline</span>
-                  </div>
-                  
-                  {/* Real-time calculated Sharp SVG Line Graph */}
-                  {(() => {
-                    const filterDate = new Date(2026, 5, 14); // June 14, 2026
-                    filterDate.setHours(0, 0, 0, 0);
+              {/* MAIN ANALYTICS INFOGRAPHICS GRID */}
+              <div className="space-y-4">
 
-                    const dateMap: { [dateStr: string]: { count: number, label: string, time: number } } = {};
+                {/* ROW 1: PEAK OPERATIONAL INGESTION HOURS (SMOOTH CURVED LINE GRAPH WITH DATE FILTER) */}
+                <div className="grid grid-cols-1 gap-4">
 
-                    cases.forEach(c => {
-                      const caseDate = safeParseDate(c.caseCreatedTime || c.createdAt);
-                      caseDate.setHours(0, 0, 0, 0);
-                      
-                      if (caseDate.getTime() >= filterDate.getTime()) {
-                        const label = caseDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-                        const dateStr = caseDate.toLocaleDateString("en-GB");
-                        if (!dateMap[dateStr]) {
-                          dateMap[dateStr] = {
-                            count: 0,
-                            label: label,
-                            time: caseDate.getTime()
-                          };
-                        }
-                        dateMap[dateStr].count += 1;
-                      }
-                    });
-
-                    const chartData = Object.keys(dateMap).map(k => ({
-                      date: dateMap[k].label,
-                      count: dateMap[k].count,
-                      time: dateMap[k].time
-                    })).sort((a, b) => a.time - b.time);
-
-                    if (chartData.length < 1) {
-                      return (
-                        <div className="mt-4 flex flex-col items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl h-[160px] p-6 text-center">
-                          <TrendingUp className="h-7 w-7 text-slate-350 mb-2 animate-pulse" />
-                          <span className="text-xs font-bold text-slate-700 font-sans">No Data after 14.06.2026</span>
-                          <p className="text-[10px] text-slate-400 mt-1 max-w-sm font-sans leading-relaxed">
-                            No cases matched the search filter since June 14, 2026.
-                          </p>
+                  {/* 1. PEAK OPERATIONAL INGESTION HOURS (SMOOTH CURVED LINE GRAPH) */}
+                  <div className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs flex flex-col justify-between">
+                    <div className="pb-3 border-b border-[#f5f5f7] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <Activity className="h-4 w-4 text-indigo-600" />
+                          <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider">Peak Operational Ingestion Hours</h4>
                         </div>
-                      );
-                    }
+                        <p className="text-[10px] text-slate-400 font-sans mt-0.5">Hourly case triggers distribution across business operational hours (12:00 AM - 12:00 PM) - Smooth Distribution Curve</p>
+                      </div>
 
-                    const maxCount = Math.max(...chartData.map(d => d.count), 5);
-                    const width = 600;
-                    const height = 150;
-                    const padX = 40;
-                    const padY = 25;
-                    const effW = width - padX * 2;
-                    const effH = height - padY * 2;
+                      {/* Date Filter Controls */}
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <div className="flex items-center space-x-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px]">
+                          <CalendarRange className="h-3.5 w-3.5 text-indigo-600" />
+                          <select
+                            value={ingestionFilterDate}
+                            onChange={(e) => setIngestionFilterDate(e.target.value)}
+                            className="bg-transparent border-none font-semibold text-slate-700 text-[11px] focus:outline-none cursor-pointer"
+                          >
+                            <option value="ALL">All Recorded Dates</option>
+                            {(Array.from(new Set(cases.map(c => getCaseDateString(c)))) as string[])
+                              .sort((a: string, b: string) => safeParseDate(b).getTime() - safeParseDate(a).getTime())
+                              .map((dStr: string) => (
+                                <option key={dStr} value={dStr}>{dStr}</option>
+                              ))}
+                          </select>
+                        </div>
 
-                    // Compute points coordinates
-                    const points = chartData.map((item, idx) => {
-                      const divisor = chartData.length > 1 ? chartData.length - 1 : 1;
-                      const x = padX + idx * (effW / divisor);
-                      const yCount = height - padY - (item.count / maxCount) * effH;
-                      return { x, yCount, ...item };
-                    });
+                        <input
+                          type="date"
+                          value={ingestionFilterDate !== "ALL" ? ingestionFilterDate : ""}
+                          onChange={(e) => setIngestionFilterDate(e.target.value || "ALL")}
+                          className="bg-slate-50 border border-slate-200 text-slate-700 text-[11px] font-mono px-2 py-1 rounded-lg focus:outline-none cursor-pointer"
+                        />
+                      </div>
+                    </div>
 
-                    const polylinePoints = points.map(p => `${p.x},${p.yCount}`).join(" ");
-                    const areaPoints = `${points[0].x},${height - padY} ${polylinePoints} ${points[points.length - 1].x},${height - padY}`;
+                    {/* Hourly Smooth Line Graph */}
+                    {(() => {
+                      const filteredForHours = ingestionFilterDate === "ALL" 
+                        ? cases 
+                        : cases.filter(c => getCaseDateString(c) === ingestionFilterDate);
 
-                    return (
-                      <div className="mt-4 flex flex-col">
-                        {/* Interactive Legend Row */}
-                        <div className="flex items-center space-x-3.5 mb-2.5 justify-end text-[9px] font-sans font-bold uppercase tracking-wider">
-                          <div className="flex items-center space-x-1">
-                            <span className="h-2.5 w-2.5 rounded-full bg-[#ff7a00]"></span>
-                            <span className="text-slate-550">Total Cases</span>
+                      const hourlyCounts: { [hr: number]: number } = {};
+                      for (let i = 0; i < 24; i++) hourlyCounts[i] = 0;
+
+                      filteredForHours.forEach(c => {
+                        const d = safeParseDate(c.caseCreatedTime || c.createdAt);
+                        const hr = d.getHours();
+                        if (!isNaN(hr) && hr >= 0 && hr < 24) {
+                          hourlyCounts[hr] += 1;
+                        }
+                      });
+
+                      const maxHrVal = Math.max(...Object.values(hourlyCounts), 3);
+                      let peakHour = 0;
+                      let peakVal = 0;
+                      Object.entries(hourlyCounts).forEach(([hStr, val]) => {
+                        if (val > peakVal) {
+                          peakVal = val;
+                          peakHour = parseInt(hStr, 10);
+                        }
+                      });
+
+                      const peakHourLabel = `${peakHour.toString().padStart(2, '0')}:00`;
+
+                      const svgWidth = 800;
+                      const svgHeight = 160;
+                      const padLeft = 35;
+                      const padRight = 20;
+                      const padTop = 20;
+                      const padBottom = 25;
+                      const chartW = svgWidth - padLeft - padRight;
+                      const chartH = svgHeight - padTop - padBottom;
+
+                      const hourPoints = Array.from({ length: 24 }, (_, i) => {
+                        const count = hourlyCounts[i] || 0;
+                        const x = padLeft + (i / 23) * chartW;
+                        const y = padTop + chartH - (count / maxHrVal) * chartH;
+                        return { hour: i, count, x, y };
+                      });
+
+                      // Smooth Bezier Path calculation for non-sharp edges
+                      const getSmoothPath = (pts: { x: number; y: number }[]) => {
+                        if (pts.length === 0) return "";
+                        if (pts.length === 1) return `M ${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+                        let d = `M ${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+                        for (let i = 0; i < pts.length - 1; i++) {
+                          const current = pts[i];
+                          const next = pts[i + 1];
+                          const cp1x = (current.x + (next.x - current.x) * 0.4).toFixed(2);
+                          const cp1y = current.y.toFixed(2);
+                          const cp2x = (next.x - (next.x - current.x) * 0.4).toFixed(2);
+                          const cp2y = next.y.toFixed(2);
+                          d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${next.x.toFixed(2)},${next.y.toFixed(2)}`;
+                        }
+                        return d;
+                      };
+
+                      const smoothLineStr = getSmoothPath(hourPoints);
+                      const smoothAreaStr = `${smoothLineStr} L ${(padLeft + chartW).toFixed(2)},${(padTop + chartH).toFixed(2)} L ${padLeft.toFixed(2)},${(padTop + chartH).toFixed(2)} Z`;
+
+                      return (
+                        <div className="mt-3 flex flex-col justify-between flex-1">
+                          <div className="flex justify-between items-center text-[10px] mb-2 px-1">
+                            <span className="font-semibold text-slate-500">
+                              Displaying {filteredForHours.length} Cases ({ingestionFilterDate === "ALL" ? "All Recorded Dates" : ingestionFilterDate})
+                            </span>
+                            {peakVal > 0 && (
+                              <span className="bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold px-2.5 py-0.5 rounded-full font-mono">
+                                🔥 Peak Operational Slot: {peakHourLabel} ({peakVal} cases)
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="relative w-full h-[160px]">
+                            <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-full" preserveAspectRatio="none">
+                              <defs>
+                                <linearGradient id="lineGradAreaSmooth" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
+                                  <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
+                                </linearGradient>
+                              </defs>
+
+                              {[0, 0.5, 1].map((ratio, idx) => {
+                                const yPos = padTop + ratio * chartH;
+                                return (
+                                  <line key={idx} x1={padLeft} y1={yPos} x2={padLeft + chartW} y2={yPos} stroke="#f1f5f9" strokeWidth="1" strokeDasharray="3 3" />
+                                );
+                              })}
+
+                              {/* Smooth Filled Curve */}
+                              <path d={smoothAreaStr} fill="url(#lineGradAreaSmooth)" />
+
+                              {/* Smooth Curved Line Stroke */}
+                              <path d={smoothLineStr} fill="none" stroke="#6366f1" strokeWidth="3" className="stroke-linecap-round stroke-linejoin-round" />
+
+                              {hourPoints.map(p => (
+                                <g key={p.hour} className="group cursor-pointer">
+                                  <circle 
+                                    cx={p.x} 
+                                    cy={p.y} 
+                                    r={p.count === peakVal && p.count > 0 ? "5.5" : "3.5"} 
+                                    fill={p.count === peakVal && p.count > 0 ? "#4f46e5" : "#ffffff"} 
+                                    stroke={p.count > 0 ? "#6366f1" : "#cbd5e1"} 
+                                    strokeWidth="2.5" 
+                                  />
+                                </g>
+                              ))}
+                            </svg>
+
+                            <div className="absolute inset-0 top-[20px] bottom-[25px] left-[35px] right-[20px] flex justify-between pointer-events-none">
+                              {hourPoints.map(p => (
+                                <div
+                                  key={p.hour}
+                                  className="group pointer-events-auto cursor-pointer relative flex-1 flex flex-col items-center justify-center"
+                                >
+                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] py-1 px-2 rounded-lg font-mono pointer-events-none absolute -top-8 z-30 whitespace-nowrap shadow-md">
+                                    {p.hour.toString().padStart(2, '0')}:00 - {p.count} cases
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex justify-between items-center text-[8.5px] font-mono text-slate-400 font-bold px-1 mt-1 border-t border-slate-100 pt-1">
+                            {hourPoints.filter((_, idx) => idx % 2 === 0).map(p => (
+                              <span key={p.hour}>{p.hour.toString().padStart(2, '0')}h</span>
+                            ))}
                           </div>
                         </div>
+                      );
+                    })()}
 
-                        <div className="relative w-full overflow-hidden" style={{ height: "160px" }}>
-                          {/* Main SVG drawing board */}
-                          <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full animate-fade-in" preserveAspectRatio="none">
-                            <defs>
-                              <linearGradient id="sharp-grad-count" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#ff7a00" stopOpacity="0.15" />
-                                <stop offset="100%" stopColor="#ff7a00" stopOpacity="0.00" />
-                              </linearGradient>
-                            </defs>
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 mt-2">
+                      <span>Operational Contact Efficiency:</span>
+                      <div className="flex items-center space-x-3 font-semibold">
+                        <span className="text-indigo-600">Manual: {manualCallCount}</span>
+                        <span className="text-teal-600">Contacted: {contactedCallCount}</span>
+                        <span className="text-slate-500">Unable: {unableCallCount}</span>
+                      </div>
+                    </div>
+                  </div>
 
-                            {/* Guideline Y ticks */}
-                            {[0, 0.5, 1].map((ratio, i) => {
-                              const y = padY + ratio * effH;
-                              return (
-                                <line 
-                                  key={i} 
-                                  x1={padX} 
-                                  y1={y} 
-                                  x2={width - padX} 
-                                  y2={y} 
-                                  stroke="#f0f1f3" 
-                                  strokeWidth="1" 
-                                  strokeDasharray="4 4" 
-                                />
-                              );
-                            })}
+                </div>
 
-                            {/* Guideline X ticks */}
-                            {points.map((p, i) => (
-                              <line 
-                                key={i} 
-                                x1={p.x} 
-                                y1={padY} 
-                                x2={p.x} 
-                                y2={height - padY} 
-                                stroke="#f5f5f7" 
-                                strokeWidth="1" 
-                                strokeDasharray="3 3" 
-                              />
-                            ))}
+                {/* ROW 2: TOTAL CASE BY DAY (BAR GRAPH WITH MONTH FILTER) & DECISION MIX RING */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-                            {/* Shadowed fill areas */}
-                            {points.length > 1 && (
-                              <polygon points={areaPoints} fill="url(#sharp-grad-count)" />
+                  {/* 3. TOTAL CASES BY DAY (BAR GRAPH) */}
+                  <div className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs lg:col-span-2 flex flex-col justify-between">
+                    <div className="pb-3 border-b border-[#f5f5f7] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <BarChart3 className="h-4 w-4 text-[#0071e3]" />
+                          <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider">Total Cases by Day of Month</h4>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-sans mt-0.5">Daily case intake distribution across all days in selected month</p>
+                      </div>
+
+                      {/* Month Filter Control */}
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <div className="flex items-center space-x-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px]">
+                          <CalendarRange className="h-3.5 w-3.5 text-[#0071e3]" />
+                          <input
+                            type="month"
+                            value={monthFilter}
+                            onChange={(e) => setMonthFilter(e.target.value || "2026-06")}
+                            className="bg-transparent border-none font-semibold text-slate-700 text-[11px] focus:outline-none cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Days in Month Bar Visualizer */}
+                    {(() => {
+                      const [yearStr, mStr] = monthFilter.split("-");
+                      const year = parseInt(yearStr || "2026", 10);
+                      const monthIdx = parseInt(mStr || "06", 10) - 1;
+                      const daysInMonth = new Date(year, monthIdx + 1, 0).getDate();
+
+                      const dayCounts: { [day: number]: number } = {};
+                      for (let d = 1; d <= daysInMonth; d++) dayCounts[d] = 0;
+
+                      cases.forEach(c => {
+                        const dateObj = safeParseDate(c.caseCreatedTime || c.createdAt);
+                        if (dateObj.getFullYear() === year && dateObj.getMonth() === monthIdx) {
+                          const dayNum = dateObj.getDate();
+                          if (dayCounts[dayNum] !== undefined) {
+                            dayCounts[dayNum] += 1;
+                          }
+                        }
+                      });
+
+                      const maxDayCount = Math.max(...Object.values(dayCounts), 3);
+                      const totalMonthCases = Object.values(dayCounts).reduce((a, b) => a + b, 0);
+
+                      let peakDay = 1;
+                      let peakDayVal = 0;
+                      Object.entries(dayCounts).forEach(([dStr, val]) => {
+                        if (val > peakDayVal) {
+                          peakDayVal = val;
+                          peakDay = parseInt(dStr, 10);
+                        }
+                      });
+
+                      const monthNameLabel = new Date(year, monthIdx, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+
+                      return (
+                        <div className="mt-3 flex-1 flex flex-col justify-between">
+                          <div className="flex justify-between items-center text-[10px] mb-2 px-1">
+                            <span className="font-semibold text-slate-600">
+                              Month Intake: <strong className="text-slate-900 font-mono">{totalMonthCases} Cases</strong> ({monthNameLabel})
+                            </span>
+                            {peakDayVal > 0 && (
+                              <span className="bg-blue-50 border border-blue-100 text-[#0071e3] font-bold px-2 py-0.5 rounded-full font-mono">
+                                Peak Day: {peakDay} {monthNameLabel.split(" ")[0]} ({peakDayVal} cases)
+                              </span>
                             )}
+                          </div>
 
-                            {/* Crisp sharp line connections */}
-                            {points.length > 1 && (
-                              <polyline 
-                                points={polylinePoints} 
-                                fill="none" 
-                                stroke="#ff7a00" 
-                                strokeWidth="3.5" 
-                                className="stroke-linecap-round stroke-linejoin-round"
-                              />
-                            )}
+                          <div className="flex items-end justify-between space-x-1 h-32 border-b border-slate-200 pb-1 px-1">
+                            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(dayNum => {
+                              const val = dayCounts[dayNum] || 0;
+                              const heightPct = Math.max((val / maxDayCount) * 100, 6);
+                              const isPeak = val === peakDayVal && val > 0;
 
-                            {/* Vertices indicator circles */}
-                            {points.map((p, i) => (
-                              <g key={i}>
-                                <circle 
-                                  cx={p.x} 
-                                  cy={p.yCount} 
-                                  r="5" 
-                                  fill="#ffffff" 
-                                  stroke="#ff7a00" 
-                                  strokeWidth="3" 
-                                />
-                              </g>
-                            ))}
-
-                            {/* Day-by-Day Vertices Text Labels directly above points */}
-                            {points.map((p, i) => (
-                              <g key={`lbl-${i}`}>
-                                <text
-                                  x={p.x}
-                                  y={p.yCount - 10}
-                                  textAnchor="middle"
-                                  className="fill-[#ff7a00] font-sans text-[10px] font-bold"
-                                >
-                                  {p.count}
-                                </text>
-                              </g>
-                            ))}
-                          </svg>
-
-                          {/* Hover elements overlay */}
-                          <div className="absolute inset-0 top-[25px] bottom-[25px] left-[40px] right-[40px] flex justify-between pointer-events-none">
-                            {points.map((p, i) => {
-                              const pctLeft = ((p.x - padX) / effW) * 100;
                               return (
-                                <div 
-                                  key={i}
-                                  className="absolute group pointer-events-auto cursor-pointer"
-                                  style={{ 
-                                    left: `calc(${pctLeft}% - 20px)`, 
-                                    width: "40px", 
-                                    height: "100px",
-                                    top: "0" 
-                                  }}
-                                >
-                                  {/* Custom Tooltip on Hover */}
-                                  <div className="absolute pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 bg-slate-900 border border-slate-800 text-white p-2.5 rounded-xl text-center shadow-lg -top-16 left-1/2 -translate-x-1/2 z-30 whitespace-nowrap min-w-32 select-none">
-                                    <p className="font-sans font-bold text-[9px] text-amber-400 uppercase tracking-wider">{p.date}</p>
-                                    <p className="font-sans text-[11px] font-bold mt-0.5 text-white">{p.count} Total Case(s)</p>
+                                <div key={dayNum} className="flex-1 flex flex-col items-center group relative cursor-pointer h-full justify-end">
+                                  <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] py-1 px-2 rounded -top-8 font-mono pointer-events-none z-30 whitespace-nowrap shadow-md">
+                                    Day {dayNum} ({monthNameLabel}): {val} cases
                                   </div>
+
+                                  <span className={`text-[8px] font-mono font-bold mb-0.5 ${isPeak ? "text-[#0071e3]" : "text-slate-400"}`}>
+                                    {val > 0 ? val : ""}
+                                  </span>
+
+                                  <div
+                                    className={`w-full rounded-t transition-all duration-300 ${
+                                      isPeak 
+                                        ? "bg-[#0071e3] shadow-md shadow-blue-500/20" 
+                                        : val > 0 
+                                        ? "bg-[#0071e3]/70 hover:bg-[#0071e3]" 
+                                        : "bg-slate-100"
+                                    }`}
+                                    style={{ height: `${heightPct}%` }}
+                                  />
                                 </div>
                               );
                             })}
                           </div>
-                        </div>
 
-                        {/* X-Axis labels */}
-                        <div className="flex justify-between items-center text-[10px] font-semibold text-slate-500 px-7 mt-1.5 border-t border-slate-50 pt-1">
-                          {chartData.map((item, idx) => (
-                            <span key={idx} className="font-sans select-none">{item.date}</span>
-                          ))}
+                          <div className="flex justify-between space-x-1 px-1 mt-1 text-[8px] text-slate-400 font-mono font-bold">
+                            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(dayNum => (
+                              <span key={dayNum} className="flex-1 text-center">
+                                {dayNum % 2 !== 0 ? dayNum : ""}
+                              </span>
+                            ))}
+                          </div>
                         </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* 4. FRAUD RISK & DECISION DISTRIBUTION RING */}
+                  <div className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs lg:col-span-1 flex flex-col justify-between">
+                    <div className="pb-3 border-b border-[#f5f5f7]">
+                      <div className="flex items-center space-x-2">
+                        <PieChart className="h-4 w-4 text-indigo-600" />
+                        <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider">Fraud Risk & Decision Mix</h4>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-sans mt-0.5">Classification ratio across total ingested volume</p>
+                    </div>
+                    
+                    <div className="flex-1 flex items-center justify-center py-4">
+                      <div className="relative h-36 w-36 flex items-center justify-center">
+                        <svg className="absolute transform -rotate-90" width="140" height="140" viewBox="0 0 100 100">
+                          <circle cx="50" cy="50" r="38" fill="transparent" stroke="#f1f5f9" strokeWidth="10" />
+                          
+                          <circle 
+                            cx="50" cy="50" r="38" 
+                            fill="transparent" 
+                            stroke="#3b82f6" 
+                            strokeWidth="10" 
+                            strokeDasharray="238.7" 
+                            strokeDashoffset={`${238.7 * (1 - (assumeGenuineCount / (cases.length || 1)))}`}
+                          />
+                          <circle 
+                            cx="50" cy="50" r="38" 
+                            fill="transparent" 
+                            stroke="#10b981" 
+                            strokeWidth="10" 
+                            strokeDasharray="238.7" 
+                            strokeDashoffset={`${238.7 * (1 - (confirmGenuineCount / (cases.length || 1)))}`}
+                            style={{ transform: `rotate(${(assumeGenuineCount / (cases.length || 1)) * 360}deg)`, transformOrigin: "50px 50px" }}
+                          />
+                          <circle 
+                            cx="50" cy="50" r="38" 
+                            fill="transparent" 
+                            stroke="#f59e0b" 
+                            strokeWidth="10" 
+                            strokeDasharray="238.7" 
+                            strokeDashoffset={`${238.7 * (1 - (suspectedFraudCount / (cases.length || 1)))}`}
+                            style={{ transform: `rotate(${((assumeGenuineCount + confirmGenuineCount) / (cases.length || 1)) * 360}deg)`, transformOrigin: "50px 50px" }}
+                          />
+                          <circle 
+                            cx="50" cy="50" r="38" 
+                            fill="transparent" 
+                            stroke="#ef4444" 
+                            strokeWidth="10" 
+                            strokeDasharray="238.7" 
+                            strokeDashoffset={`${238.7 * (1 - (confirmFraudCount / (cases.length || 1)))}`}
+                            style={{ transform: `rotate(${((assumeGenuineCount + confirmGenuineCount + suspectedFraudCount) / (cases.length || 1)) * 360}deg)`, transformOrigin: "50px 50px" }}
+                          />
+                        </svg>
+                        
+                        <div className="text-center">
+                          <span className="text-3xl font-mono font-bold text-slate-900">{cases.length}</span>
+                          <p className="text-[9px] uppercase tracking-widest text-slate-400 font-bold">Total Cases</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-blue-50/60 p-2 rounded-xl border border-blue-100 flex flex-col">
+                        <span className="text-[9px] text-blue-600 font-bold flex items-center">
+                          <span className="h-2 w-2 rounded-full bg-blue-500 mr-1.5"></span>
+                          Assume Genuine
+                        </span>
+                        <span className="font-bold font-mono text-slate-900 text-sm mt-0.5">{assumeGenuineCount}</span>
+                      </div>
+
+                      <div className="bg-emerald-50/60 p-2 rounded-xl border border-emerald-100 flex flex-col">
+                        <span className="text-[9px] text-emerald-600 font-bold flex items-center">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 mr-1.5"></span>
+                          Confirmed Genuine
+                        </span>
+                        <span className="font-bold font-mono text-slate-900 text-sm mt-0.5">{confirmGenuineCount}</span>
+                      </div>
+
+                      <div className="bg-amber-50/60 p-2 rounded-xl border border-amber-100 flex flex-col">
+                        <span className="text-[9px] text-amber-600 font-bold flex items-center">
+                          <span className="h-2 w-2 rounded-full bg-amber-500 mr-1.5"></span>
+                          Suspected Fraud
+                        </span>
+                        <span className="font-bold font-mono text-slate-900 text-sm mt-0.5">{suspectedFraudCount}</span>
+                      </div>
+
+                      <div className="bg-red-50/60 p-2 rounded-xl border border-red-100 flex flex-col">
+                        <span className="text-[9px] text-red-600 font-bold flex items-center">
+                          <span className="h-2 w-2 rounded-full bg-red-500 mr-1.5"></span>
+                          Confirmed Fraud
+                        </span>
+                        <span className="font-bold font-mono text-slate-900 text-sm mt-0.5">{confirmFraudCount}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* ROW 3: CASE INTAKE & OPERATIONAL RESOLUTION TREND (HORIZONTAL BAR GRAPH OVERALL) */}
+                <div className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs">
+                  <div className="pb-3 border-b border-[#f5f5f7] flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <TrendingUp className="h-4 w-4 text-[#0071e3]" />
+                        <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider">Case Intake & Operational Resolution Trend (Overall)</h4>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-sans mt-0.5">Horizontal volume breakdown across resolution, call response & fraud risk categories</p>
+                    </div>
+                    <span className="text-[9px] bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-1 rounded-md font-bold uppercase tracking-wider">
+                      Overall Portfolio Breakdown
+                    </span>
+                  </div>
+
+                  {(() => {
+                    const categories = [
+                      {
+                        name: "Confirmed Fraud",
+                        count: confirmFraudCount,
+                        color: "bg-red-500",
+                        textColor: "text-red-600",
+                        bgColor: "bg-red-50 border-red-100",
+                        amount: cases.filter(c => c.resolution === "Confirmed Fraud").reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0)
+                      },
+                      {
+                        name: "Suspected Fraud",
+                        count: suspectedFraudCount,
+                        color: "bg-amber-500",
+                        textColor: "text-amber-600",
+                        bgColor: "bg-amber-50 border-amber-100",
+                        amount: cases.filter(c => c.resolution === "Suspected Fraud").reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0)
+                      },
+                      {
+                        name: "Confirmed Genuine",
+                        count: confirmGenuineCount,
+                        color: "bg-emerald-500",
+                        textColor: "text-emerald-600",
+                        bgColor: "bg-emerald-50 border-emerald-100",
+                        amount: cases.filter(c => c.resolution === "Confirmed Genuine").reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0)
+                      },
+                      {
+                        name: "Assume Genuine",
+                        count: assumeGenuineCount,
+                        color: "bg-blue-500",
+                        textColor: "text-blue-600",
+                        bgColor: "bg-blue-50 border-blue-100",
+                        amount: cases.filter(c => c.resolution === "Assume Genuine").reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0)
+                      },
+                      {
+                        name: "Unable to Contact / Pending Response",
+                        count: unableCallCount,
+                        color: "bg-slate-500",
+                        textColor: "text-slate-600",
+                        bgColor: "bg-slate-50 border-slate-100",
+                        amount: cases.filter(c => c.callResponse === "Unable to Contact").reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0)
+                      },
+                      {
+                        name: "Manual Call / Escalated Close",
+                        count: manualCallCount,
+                        color: "bg-indigo-500",
+                        textColor: "text-indigo-600",
+                        bgColor: "bg-indigo-50 border-indigo-100",
+                        amount: cases.filter(c => c.callResponse === "Manual Call").reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0)
+                      }
+                    ];
+
+                    const totalCasesVol = cases.length || 1;
+
+                    return (
+                      <div className="mt-4 space-y-3">
+                        {categories.map((cat, idx) => {
+                          const pct = Math.round((cat.count / totalCasesVol) * 100);
+                          return (
+                            <div key={idx} className="group hover:bg-slate-50/80 p-2 rounded-xl transition-all border border-transparent hover:border-slate-100">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs mb-1.5 gap-1">
+                                <div className="flex items-center space-x-2">
+                                  <span className={`h-2.5 w-2.5 rounded-full ${cat.color} shrink-0`}></span>
+                                  <span className="font-semibold text-slate-800">{cat.name}</span>
+                                </div>
+
+                                <div className="flex items-center space-x-3 font-mono text-[11px]">
+                                  <span className="text-slate-500">{cat.count} Cases ({pct}%)</span>
+                                  <span className={`font-bold ${cat.textColor}`}>
+                                    RM {cat.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                                <div 
+                                  className={`${cat.color} h-full rounded-full transition-all duration-500`}
+                                  style={{ width: `${Math.max(pct, cat.count > 0 ? 3 : 0)}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   })()}
                 </div>
 
-                {/* Visualizer 2 - EVENT TYPE DISTRIBUTION RING */}
-                <div className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs flex flex-col">
-                  <div className="pb-3 border-b border-[#f5f5f7]">
-                    <h4 className="font-sans font-semibold text-xs text-slate-800 uppercase tracking-wider">Day Resolution Mix</h4>
-                    <p className="text-[10px] text-slate-400 font-sans mt-0.5">Overall decisions parsed on daily logs</p>
-                  </div>
-                  
-                  <div className="flex-1 flex items-center justify-center py-4">
-                    <div className="relative h-32 w-32 flex items-center justify-center">
-                      {/* Simple CSS ring or graphics */}
-                      <svg className="absolute transform -rotate-90" width="120" height="120" viewBox="0 0 100 100">
-                        {/* Circle background */}
-                        <circle cx="50" cy="50" r="40" fill="transparent" stroke="#e8e8ed" strokeWidth="8" />
-                        {/* Segment 1: Confirmed Fraud (Red) */}
-                        <circle 
-                          cx="50" cy="50" r="40" 
-                          fill="transparent" 
-                          stroke="#ef4444" 
-                          strokeWidth="8" 
-                          strokeDasharray="251.2" 
-                          strokeDashoffset={`${251.2 * (1 - (cases.filter(c => c.resolution.includes("Suspected") || c.resolution.includes("Fraud")).length / (cases.length || 1)))}`}
-                        />
-                      </svg>
-                      <div className="text-center">
-                        <span className="text-3xl font-mono font-bold text-slate-900">{cases.length}</span>
-                        <p className="text-[9px] uppercase tracking-widest text-slate-400">Total Entries</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5 text-xs">
-                    <div className="flex justify-between items-center text-[10px]">
-                      <span className="flex items-center text-slate-600">
-                        <span className="h-2 w-2 rounded-full bg-red-500 mr-2"></span>
-                        Suspected/Confirmed Fraud
-                      </span>
-                      <span className="font-bold font-mono text-slate-700">{cases.filter(c => c.resolution.toLowerCase().includes("fraud") || c.remarks.toLowerCase().includes("fraud")).length}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[10px]">
-                      <span className="flex items-center text-slate-600">
-                        <span className="h-2 w-2 rounded-full bg-emerald-500 mr-2"></span>
-                        Confirmed/Assume Genuine
-                      </span>
-                      <span className="font-bold font-mono text-slate-700">{cases.filter(c => c.resolution.toLowerCase().includes("genuine") || c.remarks.toLowerCase().includes("genuine")).length}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[10px]">
-                      <span className="flex items-center text-slate-600">
-                        <span className="h-2 w-2 rounded-full bg-blue-500 mr-2"></span>
-                        In Progress Calls
-                      </span>
-                      <span className="font-bold font-mono text-slate-700">{cases.filter(c => c.resolution.toLowerCase().includes("progress")).length}</span>
-                    </div>
-                  </div>
-                </div>
-
               </div>
 
-              {/* OFFICER STATS SCORECARD */}
-              <div id="stat-scorecard-table" className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              {/* CONSOLIDATED TEAM PRODUCTIVITY SCORECARD TABLE */}
+              <div id="stat-scorecard-table" className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs">
                 <div className="pb-3 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-2">
                   <div>
-                    <h4 className="font-display font-semibold text-xs text-slate-800 uppercase tracking-wider flex items-center space-x-2">
+                    <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider flex items-center space-x-2">
                       <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
                       <span>Consolidated Daily Team Productivity Scorecard (All Compliance Officers Sync)</span>
                     </h4>
-                    <p className="text-[10px] text-indigo-750 font-bold">
+                    <p className="text-[10px] text-indigo-750 font-bold mt-0.5">
                       Reflecting team-wide real-time FMS case resolutions and decision workloads synced across all database roles
                     </p>
                   </div>
                   
                   <div className="flex items-center space-x-2 shrink-0">
                     {/* Scorecard Date Filter Dropdown */}
-                    <div className="flex items-center space-x-1 bg-slate-100 border border-slate-250 rounded px-2 py-1 text-[11px] font-semibold text-slate-700">
+                    <div className="flex items-center space-x-1 bg-slate-100 border border-slate-250 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-slate-700">
                       <CalendarRange className="h-3.5 w-3.5 text-slate-500" />
                       <select
                         id="scorecard-date-filter"
@@ -2767,7 +3149,7 @@ export default function App() {
                       onClick={() => {
                         alert("Daily PSID Excel log compiler triggering...");
                       }}
-                      className="flex items-center space-x-1 px-2.5 py-1 bg-slate-900 text-white text-[10px] font-bold rounded hover:bg-slate-700 transition"
+                      className="flex items-center space-x-1.5 px-3 py-1 bg-slate-900 text-white text-[10px] font-bold rounded-lg hover:bg-slate-700 transition cursor-pointer"
                     >
                       <FileSpreadsheet className="h-3.5 w-3.5" />
                       <span>Excel Log</span>
@@ -2776,18 +3158,24 @@ export default function App() {
                 </div>
 
                 <div className="mt-3 overflow-x-auto">
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[9px] tracking-wider">
-                        <th className="px-3 py-2">Officer PSID</th>
-                        <th className="px-3 py-2 text-center text-red-600">Confirm Fraud</th>
-                        <th className="px-3 py-2 text-center text-amber-500">Suspected Fraud</th>
-                        <th className="px-3 py-2 text-center text-green-600">Confirm Genuine</th>
-                        <th className="px-3 py-2 text-center text-blue-600">Assume Genuine</th>
-                        <th className="px-3 py-2 text-center">Total Workload</th>
-                        <th className="px-3 py-2 text-center text-indigo-600">Contacted</th>
-                        <th className="px-3 py-2 text-center text-slate-500">No Contact</th>
-                        <th className="px-3 py-2 text-center">Close Manual</th>
+                      {/* Top Grouped Header */}
+                      <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-700 font-bold uppercase text-[9px] tracking-wider text-center">
+                        <th className="px-3 py-2 text-left border-r border-slate-200" rowSpan={2}>Officer PSID</th>
+                        <th className="px-3 py-1 border-r border-slate-200 bg-slate-200/50" colSpan={4}>Resolution</th>
+                        <th className="px-3 py-1 border-r border-slate-200 bg-indigo-50/50" colSpan={3}>Call</th>
+                        <th className="px-3 py-2 text-center" rowSpan={2}>Total Workload</th>
+                      </tr>
+                      {/* Sub Columns Header */}
+                      <tr className="bg-slate-50 border-b border-slate-200 font-bold uppercase text-[9px] tracking-wider text-center">
+                        <th className="px-2.5 py-1.5 text-blue-600 border-r border-slate-200">Assume Genuine</th>
+                        <th className="px-2.5 py-1.5 text-green-600 border-r border-slate-200">Confirmed Genuine</th>
+                        <th className="px-2.5 py-1.5 text-amber-500 border-r border-slate-200">Suspected Fraud</th>
+                        <th className="px-2.5 py-1.5 text-red-600 border-r border-slate-200">Confirmed Fraud</th>
+                        <th className="px-2.5 py-1.5 text-indigo-600 border-r border-slate-200">Manual</th>
+                        <th className="px-2.5 py-1.5 text-teal-600 border-r border-slate-200">Contacted</th>
+                        <th className="px-2.5 py-1.5 text-slate-500 border-r border-slate-200">Unable to Contact</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -2800,19 +3188,62 @@ export default function App() {
                           ? scoreCases
                           : scoreCases.filter(c => getCaseDateString(c) === scorecardDateFilter);
 
-                        const confirmFraud = filteredScoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("confirm") && c.resolution.toLowerCase().includes("fraud")).length;
-                        const suspectedFraud = filteredScoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("suspect")).length;
-                        const confirmGenuine = filteredScoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("confirm") && c.resolution.toLowerCase().includes("genuine")).length;
-                        const assumeGenuine = filteredScoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("assume") && c.resolution.toLowerCase().includes("genuine")).length;
+                        // Resolution calculations:
+                        const assumeGenuine = filteredScoreCases.filter(c => {
+                          const r = (c.resolution || "").toLowerCase();
+                          return r.includes("assume") || (r.includes("genuine") && !r.includes("confirm"));
+                        }).length;
+
+                        const confirmGenuine = filteredScoreCases.filter(c => {
+                          const r = (c.resolution || "").toLowerCase();
+                          return r.includes("confirm") && r.includes("genuine");
+                        }).length;
+
+                        const suspectedFraud = filteredScoreCases.filter(c => {
+                          const r = (c.resolution || "").toLowerCase();
+                          return r.includes("suspect");
+                        }).length;
+
+                        const confirmFraud = filteredScoreCases.filter(c => {
+                          const r = (c.resolution || "").toLowerCase();
+                          return r.includes("confirm") && r.includes("fraud");
+                        }).length;
                         
-                        const contacted = filteredScoreCases.filter(c => c.callResponse && (c.callResponse.toLowerCase().includes("contacted") || c.callResponse.toLowerCase().includes("close screen"))).length;
-                        const noContact = filteredScoreCases.filter(c => c.callResponse && c.callResponse.toLowerCase().includes("unable")).length;
-                        const closeManual = filteredScoreCases.filter(c => c.resolution && c.resolution.toLowerCase().includes("manual")).length;
+                        // Call calculations:
+                        const manualCall = filteredScoreCases.filter(c => {
+                          const cr = (c.callResponse || "").toLowerCase();
+                          const r = (c.resolution || "").toLowerCase();
+                          return cr.includes("manual") || cr.includes("cc") || r.includes("manual") || r.includes("cc");
+                        }).length;
+
+                        const contacted = filteredScoreCases.filter(c => {
+                          const cr = (c.callResponse || "").toLowerCase();
+                          const r = (c.resolution || "").toLowerCase();
+                          return (cr.includes("contacted") || cr.includes("close screen") || r.includes("contacted")) && !cr.includes("unable");
+                        }).length;
+
+                        const unableToContact = filteredScoreCases.filter(c => {
+                          const cr = (c.callResponse || "").toLowerCase();
+                          const r = (c.resolution || "").toLowerCase();
+                          return cr.includes("unable") || cr.includes("no contact") || r.includes("unable");
+                        }).length;
+
                         const totalWorkload = filteredScoreCases.length;
+
+                        // Calculate average TAT for officer
+                        const officerTATs = filteredScoreCases.map(c => {
+                          const startMs = parseFmsToMs(c.caseCreatedTime || c.createdAt);
+                          const endMs = parseFmsToMs(c.caseModifiedTime || c.firstCallTime || c.caseAssignedTime || c.createdAt);
+                          if (startMs !== null && endMs !== null && endMs >= startMs) {
+                            return Math.round(((endMs - startMs) / 60000) * 10) / 10;
+                          }
+                          return 0;
+                        });
+                        const officerAvgTAT = officerTATs.length > 0 ? (officerTATs.reduce((a, b) => a + b, 0) / officerTATs.length).toFixed(1) : "0.0";
 
                         return (
                           <tr key={officer.psid} className={`hover:bg-slate-50 transition-colors ${isCurrent ? "bg-amber-50/40" : ""}`}>
-                            <td className="px-3 py-2.5 font-bold text-slate-800 flex items-center space-x-1.5 whitespace-nowrap">
+                            <td className="px-3 py-2.5 font-bold text-slate-800 flex items-center space-x-1.5 whitespace-nowrap border-r border-slate-100">
                               <span className={`h-2 w-2 rounded-full ${
                                 officer.isOnline && officer.lastActive && (Date.now() - new Date(officer.lastActive).getTime() < ONLINE_THRESHOLD_MS)
                                   ? "bg-emerald-500 animate-pulse" 
@@ -2825,21 +3256,131 @@ export default function App() {
                               {isCurrent && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" title="Your Session" />}
                               <span>{officer.psid}</span>
                               <span className="text-[10px] text-slate-400 font-normal">({officer.name})</span>
+                              {totalWorkload > 0 && (
+                                <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono ml-auto">
+                                  {officerAvgTAT}m avg
+                                </span>
+                              )}
                             </td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-red-600 font-mono">{confirmFraud === 0 ? "-" : confirmFraud}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-amber-600 font-mono">{suspectedFraud === 0 ? "-" : suspectedFraud}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-green-600 font-mono">{confirmGenuine === 0 ? "-" : confirmGenuine}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-blue-600 font-mono">{assumeGenuine === 0 ? "-" : assumeGenuine}</td>
+                            <td className="px-2.5 py-2.5 text-center font-semibold text-blue-600 font-mono border-r border-slate-100">{assumeGenuine === 0 ? "-" : assumeGenuine}</td>
+                            <td className="px-2.5 py-2.5 text-center font-semibold text-green-600 font-mono border-r border-slate-100">{confirmGenuine === 0 ? "-" : confirmGenuine}</td>
+                            <td className="px-2.5 py-2.5 text-center font-semibold text-amber-600 font-mono border-r border-slate-100">{suspectedFraud === 0 ? "-" : suspectedFraud}</td>
+                            <td className="px-2.5 py-2.5 text-center font-semibold text-red-600 font-mono border-r border-slate-100">{confirmFraud === 0 ? "-" : confirmFraud}</td>
+                            <td className="px-2.5 py-2.5 text-center font-semibold text-indigo-600 font-mono border-r border-slate-100">{manualCall === 0 ? "-" : manualCall}</td>
+                            <td className="px-2.5 py-2.5 text-center font-semibold text-teal-600 font-mono border-r border-slate-100">{contacted === 0 ? "-" : contacted}</td>
+                            <td className="px-2.5 py-2.5 text-center font-semibold text-slate-500 font-mono border-r border-slate-100">{unableToContact === 0 ? "-" : unableToContact}</td>
                             <td className="px-3 py-2.5 text-center font-bold font-mono">{totalWorkload === 0 ? "-" : totalWorkload}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-indigo-600 font-mono">{contacted === 0 ? "-" : contacted}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-slate-500 font-mono">{noContact === 0 ? "-" : noContact}</td>
-                            <td className="px-3 py-2.5 text-center font-semibold text-slate-705 font-mono">{closeManual === 0 ? "-" : closeManual}</td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+              {/* BAR CHART: TOTAL CASES ATTENDED BY EACH OFFICER (BY DAY, CAN FILTER BY DATE) */}
+              <div id="stat-officer-workload-chart" className="bg-white p-5 rounded-2xl border border-[#e8e8ed] shadow-xs">
+                <div className="pb-3 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <BarChart3 className="h-4 w-4 text-emerald-600" />
+                      <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider">Total Cases Attended by Each Officer</h4>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-sans mt-0.5">Individual officer workload distribution filtered by day</p>
+                  </div>
+
+                  {/* Filter by date controls */}
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <div className="flex items-center space-x-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-[11px]">
+                      <CalendarRange className="h-3.5 w-3.5 text-emerald-600" />
+                      <select
+                        value={officerChartDateFilter}
+                        onChange={(e) => setOfficerChartDateFilter(e.target.value)}
+                        className="bg-transparent border-none font-semibold text-slate-700 text-[11px] focus:outline-none cursor-pointer"
+                      >
+                        <option value="ALL">All Recorded Dates</option>
+                        {(Array.from(new Set(cases.map(c => getCaseDateString(c)))) as string[])
+                          .sort((a: string, b: string) => safeParseDate(b).getTime() - safeParseDate(a).getTime())
+                          .map((dStr: string) => (
+                            <option key={dStr} value={dStr}>{dStr}</option>
+                          ))}
+                      </select>
+                    </div>
+
+                    <input
+                      type="date"
+                      value={officerChartDateFilter !== "ALL" ? officerChartDateFilter : ""}
+                      onChange={(e) => setOfficerChartDateFilter(e.target.value || "ALL")}
+                      className="bg-slate-50 border border-slate-200 text-slate-700 text-[11px] font-mono px-2 py-1 rounded-lg focus:outline-none cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {(() => {
+                  const filteredCasesForOfficers = officerChartDateFilter === "ALL"
+                    ? cases
+                    : cases.filter(c => getCaseDateString(c) === officerChartDateFilter);
+
+                  const officerData = staffAccounts.map(officer => {
+                    const officerCases = filteredCasesForOfficers.filter(c => c.assignedOfficer === officer.psid);
+                    return {
+                      psid: officer.psid,
+                      name: officer.name,
+                      count: officerCases.length
+                    };
+                  });
+
+                  const maxCount = Math.max(...officerData.map(o => o.count), 1);
+                  const totalAttended = officerData.reduce((acc, curr) => acc + curr.count, 0);
+
+                  return (
+                    <div className="mt-4">
+                      <div className="flex justify-between items-center text-[10px] mb-3 px-1">
+                        <span className="font-semibold text-slate-500">
+                          Attended Total: <strong className="text-slate-900 font-mono">{totalAttended} Cases</strong> ({officerChartDateFilter === "ALL" ? "All Recorded Dates" : officerChartDateFilter})
+                        </span>
+                        <span className="bg-emerald-50 border border-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full font-mono">
+                          {staffAccounts.length} Officers Synced
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 items-end h-36 pt-4 pb-1 border-b border-slate-100">
+                        {officerData.map(item => {
+                          const heightPct = Math.max((item.count / maxCount) * 100, item.count > 0 ? 12 : 4);
+                          const isTop = item.count === maxCount && item.count > 0;
+
+                          return (
+                            <div key={item.psid} className="flex flex-col items-center group relative cursor-pointer h-full justify-end">
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[9px] py-1 px-2 rounded -top-8 font-mono pointer-events-none absolute z-30 whitespace-nowrap shadow-md">
+                                {item.psid} ({item.name}): {item.count} cases
+                              </div>
+
+                              <span className={`text-[10px] font-mono font-bold mb-1 ${isTop ? "text-emerald-600" : "text-slate-600"}`}>
+                                {item.count}
+                              </span>
+
+                              <div
+                                className={`w-full max-w-[42px] rounded-t-lg transition-all duration-300 ${
+                                  isTop
+                                    ? "bg-emerald-500 shadow-md shadow-emerald-500/20"
+                                    : item.count > 0
+                                    ? "bg-indigo-500/80 hover:bg-indigo-600"
+                                    : "bg-slate-100"
+                                }`}
+                                style={{ height: `${heightPct}%` }}
+                              />
+
+                              <div className="mt-2 text-center">
+                                <p className="text-[10px] font-bold text-slate-800 font-mono leading-tight">{item.psid}</p>
+                                <p className="text-[9px] text-slate-400 font-sans truncate max-w-[65px]">{item.name}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
             </motion.div>
@@ -3677,85 +4218,221 @@ export default function App() {
                   </div>
 
                   {filteredCases.length === 0 ? (
-                    <div className="p-8 text-center text-slate-400 text-xs">
+                    <div className="p-8 text-center text-slate-400 text-xs font-sans">
                       No operational records matches your active filter query inside FMS queue.
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs text-slate-700">
+                    <div className="overflow-x-auto overflow-y-auto max-h-[580px] border border-slate-200 rounded-lg shadow-inner">
+                      <table className="w-full text-left text-[10.5px] text-slate-800 border-collapse min-w-[3200px]" style={{ fontFamily: 'Arial, sans-serif' }}>
                         <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-bold uppercase text-[9px] tracking-widest">
-                            <th className="px-3 py-2">Case Date</th>
-                            <th className="px-3 py-2">CIF Number</th>
-                            <th className="px-3 py-2">Assigned To</th>
-                            <th className="px-3 py-2 text-right">Amount (RM)</th>
-                            <th className="px-3 py-2 text-center">FMS Status</th>
-                            <th className="px-3 py-2">Resolution</th>
-                            <th className="px-3 py-2">Action</th>
+                          <tr className="bg-slate-100 border-b border-slate-300 text-slate-800 font-bold uppercase text-[9px] tracking-wider sticky top-0 bg-slate-100 z-10 shadow-xs">
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">A: Date (Pick Up Case)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">B: Date & Time Case Attended (Initial Contact)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-amber-50 text-amber-900 font-extrabold text-center whitespace-nowrap">C: TAT (minutes)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">D: Date & Time Case Closed (in FMS)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 text-center whitespace-nowrap">E: TAT (day)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">F: Date & Time Case Created (in FMS)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">G: Date & Time Case Assigned (in FMS)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">H: User ID</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">I: Organization</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">J: Mode</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 text-center whitespace-nowrap">K: Status</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">L: Resolution</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">M: Activity</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 text-center whitespace-nowrap">N: Risk Score</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 font-mono whitespace-nowrap">O: IP Address</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 text-center whitespace-nowrap">P: IP Country</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">Q: Policy Action</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">R: Assigned To</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">S: Production Rule ID</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 text-right whitespace-nowrap">T: Amount (RM) for Payment</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">U: 1st Call/Day 1 (Date and Time)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 text-center whitespace-nowrap">V: Re-Assigned to FA (if applicable)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">W: 2nd Call/Day 1 (Date and Time)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">X: 3rd Call/Day 2 (Date and Time)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">Y: Call Response</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 whitespace-nowrap">Z: Remarks (if any)</th>
+                            <th className="px-2 py-2 border-r border-slate-200 bg-slate-100 text-center whitespace-nowrap">AA: FMS Status Action</th>
+                            <th className="px-2 py-2 bg-slate-100 text-center sticky right-0 z-20 shadow-xs whitespace-nowrap border-l border-slate-200">Action</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
+                        <tbody className="divide-y divide-slate-200">
                           {filteredCases.map((cs) => {
                             const isFraud = cs.resolution.toLowerCase().includes("fraud") || cs.remarks.toLowerCase().includes("fraud");
                             const isGenuine = cs.resolution.toLowerCase().includes("genuine") || cs.remarks.toLowerCase().includes("genuine");
                             
+                            const statusText = getFmsStatusText(cs.resolution);
+                            const isClosed = statusText === "Closed";
+                            const tatVal = calculateCaseTAT(cs);
+                            
+                            const createdRaw = cs.caseCreatedTime || cs.createdAt;
+                            const createdFormatted = formatFmsDateTime(createdRaw);
+                            const pickupDateFormatted = formatFmsDateTime(createdRaw, true);
+                            
+                            const attendedRaw = cs.firstCallTime || cs.caseAssignedTime || createdRaw;
+                            const attendedFormatted = formatFmsDateTime(attendedRaw);
+                            
+                            const closedRaw = isClosed ? (cs.thirdCallTime || cs.secondCallTime || cs.firstCallTime || createdRaw) : "AWAITING CLOSED";
+                            const closedFormatted = isClosed ? formatFmsDateTime(closedRaw) : "AWAITING CLOSED";
+
                             return (
                               <React.Fragment key={cs.id}>
-                                <tr className="hover:bg-slate-50 transition-colors">
-                                  <td className="px-3 py-3 font-mono text-[10px] text-slate-500 whitespace-nowrap">
-                                    {cs.caseCreatedTime || new Date(cs.createdAt).toLocaleDateString()}
+                                <tr className="hover:bg-slate-50 transition-colors border-b border-slate-200">
+                                  {/* A: Date (Pick Up Case) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap font-medium">
+                                    {pickupDateFormatted}
                                   </td>
-                                  <td className="px-3 py-3 font-mono font-bold text-slate-900 flex items-center space-x-1">
-                                    <span>{cs.cif}</span>
-                                    <button 
-                                      onClick={() => handleCopy(cs.cif, "CIF")}
-                                      className="p-0.5 hover:bg-slate-100 rounded text-slate-400"
-                                      title="Copy CIF to clipboard"
-                                    >
-                                      <Copy className="h-3 w-3" />
-                                    </button>
+                                  {/* B: Date & Time Case Attended (Initial Contact) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    {attendedFormatted}
                                   </td>
-                                  <td className="px-3 py-3 font-mono text-slate-600">{cs.assignedOfficer}</td>
-                                  <td className="px-3 py-3 text-right font-mono font-bold text-slate-900">
-                                    RM {cs.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  {/* C: TAT (minutes) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-center font-bold text-amber-800 bg-amber-50/60 whitespace-nowrap">
+                                    {tatVal}
                                   </td>
-                                  <td className="px-3 py-3 text-center">
-                                    <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-bold font-mono ${
-                                      cs.statusAction === "LOCKED" || cs.fmsStatus === "LOCKED"
-                                        ? "bg-red-100 text-red-800"
-                                        : "bg-emerald-100 text-emerald-800"
+                                  {/* D: Date & Time Case Closed (in FMS) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    {closedFormatted}
+                                  </td>
+                                  {/* E: TAT (day) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-center font-mono text-slate-700 font-bold whitespace-nowrap">
+                                    0
+                                  </td>
+                                  {/* F: Date & Time Case Created (in FMS) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    {createdFormatted}
+                                  </td>
+                                  {/* G: Date & Time Case Assigned (in FMS) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    {createdFormatted}
+                                  </td>
+                                  {/* H: User ID */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 font-mono font-bold text-slate-900 whitespace-nowrap">
+                                    <div className="flex items-center space-x-1">
+                                      <span>{cs.cif}</span>
+                                      <button 
+                                        onClick={() => handleCopy(cs.cif, "CIF")}
+                                        className="p-0.5 hover:bg-slate-200 rounded text-slate-400"
+                                        title="Copy CIF"
+                                      >
+                                        <Copy className="h-2.5 w-2.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                  {/* I: Organization */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    AFFIN BANK
+                                  </td>
+                                  {/* J: Mode */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 font-bold whitespace-nowrap">
+                                    PROD
+                                  </td>
+                                  {/* K: Status */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-center whitespace-nowrap">
+                                    <span className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                                      isClosed
+                                        ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                        : "bg-amber-100 text-amber-800 border border-amber-200"
                                     }`}>
-                                      {cs.statusAction || cs.fmsStatus}
+                                      {statusText}
                                     </span>
                                   </td>
-                                  <td className="px-3 py-3">
-                                    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  {/* L: Resolution */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 whitespace-nowrap">
+                                    <span className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-bold ${
                                       isFraud 
                                         ? "bg-red-50 text-red-600" 
                                         : isGenuine 
                                           ? "bg-emerald-50 text-emerald-600" 
                                           : "bg-blue-50 text-blue-600"
                                     }`}>
-                                      {cs.resolution}
+                                      {cs.resolution || "Review in Progress"}
                                     </span>
                                   </td>
-                                  <td className="px-3 py-3 flex space-x-1 whitespace-nowrap">
+                                  {/* M: Activity */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    {cs.eventType}
+                                  </td>
+                                  {/* N: Risk Score */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-center font-mono font-bold text-slate-800 whitespace-nowrap">
+                                    {cs.riskScore}
+                                  </td>
+                                  {/* O: IP Address */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 font-mono text-slate-600 whitespace-nowrap">
+                                    175.143.18.92
+                                  </td>
+                                  {/* P: IP Country */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-center font-bold text-slate-700 whitespace-nowrap">
+                                    MY
+                                  </td>
+                                  {/* Q: Policy Action */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    {cs.policyAction}
+                                  </td>
+                                  {/* R: Assigned To */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    {cs.assignedOfficer}
+                                  </td>
+                                  {/* S: Production Rule ID */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 font-mono text-slate-700 whitespace-nowrap">
+                                    {cs.ruleId}
+                                  </td>
+                                  {/* T: Amount (RM) for Payment */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-right font-bold text-slate-900 font-mono whitespace-nowrap">
+                                    RM {cs.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </td>
+                                  {/* U: 1st Call/Day 1 (Date and Time) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    {formatFmsDateTime(cs.firstCallTime)}
+                                  </td>
+                                  {/* V: Re-Assigned to FA (if applicable) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-center text-slate-700 whitespace-nowrap">
+                                    {cs.escalateTeam || "NO"}
+                                  </td>
+                                  {/* W: 2nd Call/Day 1 (Date and Time) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    {formatFmsDateTime(cs.secondCallTime)}
+                                  </td>
+                                  {/* X: 3rd Call/Day 2 (Date and Time) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    {formatFmsDateTime(cs.thirdCallTime)}
+                                  </td>
+                                  {/* Y: Call Response */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 whitespace-nowrap">
+                                    {cs.callResponse || "-"}
+                                  </td>
+                                  {/* Z: Remarks (if any) */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-slate-700 max-w-[220px] truncate" title={cs.remarks}>
+                                    {cs.remarks || "-"}
+                                  </td>
+                                  {/* AA: FMS Status Action */}
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-center whitespace-nowrap">
+                                    <span className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                                      cs.statusAction === "LOCKED"
+                                        ? "bg-red-100 text-red-800"
+                                        : "bg-emerald-100 text-emerald-800"
+                                    }`}>
+                                      {cs.statusAction || cs.fmsStatus || "ACTIVE"}
+                                    </span>
+                                  </td>
+                                  {/* Action */}
+                                  <td className="px-2 py-1.5 text-center whitespace-nowrap space-x-1 sticky right-0 bg-white z-10 shadow-xs border-l border-slate-200">
                                     <button 
                                       onClick={() => handleLoadCaseForUpdate(cs.cif)}
-                                      className="px-2 py-0.5 font-bold bg-blue-50 hover:bg-blue-100 text-blue-600 rounded text-[10px] transition"
+                                      className="px-1.5 py-0.5 font-bold bg-blue-50 hover:bg-blue-100 text-blue-600 rounded text-[9px] transition"
                                       title="Load details into Update Case view"
                                     >
                                       Load
                                     </button>
                                     <button 
                                       onClick={() => setExpandedFmsCases(prev => ({ ...prev, [cs.id]: !prev[cs.id] }))}
-                                      className={`px-2 py-0.5 font-bold rounded text-[10px] transition ${
+                                      className={`px-1.5 py-0.5 font-bold rounded text-[9px] transition ${
                                         expandedFmsCases[cs.id]
                                           ? "bg-slate-200 text-slate-700 font-bold"
                                           : "bg-indigo-50 hover:bg-indigo-100 text-indigo-650"
                                       }`}
                                     >
-                                      {expandedFmsCases[cs.id] ? "Hide Details" : "Show Details"}
+                                      {expandedFmsCases[cs.id] ? "Hide" : "Show"}
                                     </button>
                                     <button 
                                       onClick={async () => {
@@ -3768,28 +4445,28 @@ export default function App() {
                                           }
                                         }
                                       }}
-                                      className="p-1 text-slate-300 hover:text-red-500 rounded transition"
+                                      className="p-0.5 text-slate-300 hover:text-red-500 rounded transition"
                                       title="Delete"
                                     >
-                                      <Trash2 className="h-3.5 w-3.5" />
+                                      <Trash2 className="h-3 w-3" />
                                     </button>
                                   </td>
                                 </tr>
-                                {/* Accenting Sequential remarks sub-block for verification proof - Conditionally rendered */}
                                 {expandedFmsCases[cs.id] && (
-                                  <tr>
-                                    <td colSpan={7} className="bg-slate-50/50 px-4 py-2 border-b border-slate-100">
-                                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-[11px] text-slate-500 gap-2">
+                                  <tr className="bg-slate-50 border-b border-slate-200">
+                                    <td colSpan={28} className="px-3 py-2">
+                                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-[10px] text-slate-600 gap-2">
                                         <div className="flex items-center space-x-1">
-                                          <CornerDownRight className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                          <CornerDownRight className="h-3 w-3 text-slate-400 shrink-0" />
                                           <span className="font-semibold text-slate-600">Verification Remarks:</span>
-                                          <span className="font-mono text-slate-900 font-bold ml-1 italic bg-white border border-slate-200 p-1.5 rounded shadow-3xs leading-relaxed max-w-2xl inline-block">
+                                          <span className="font-bold text-slate-900 ml-1 italic bg-white border border-slate-200 p-1 rounded shadow-3xs leading-relaxed max-w-2xl inline-block">
                                             "{cs.remarks || 'No verification remarks recorded.'}"
                                           </span>
                                         </div>
-                                        <div className="flex items-center space-x-1 shrink-0 font-mono text-[10px]">
-                                          <Clock className="h-3 w-3" />
-                                          <span>TAT Status: <strong className="text-slate-700">Committed</strong></span>
+                                        <div className="flex items-center space-x-2 shrink-0 text-[10px]">
+                                          <span>1st Call: <strong>{formatFmsDateTime(cs.firstCallTime)}</strong> ({cs.firstCallRemarks || '-'})</span>
+                                          <span>2nd Call: <strong>{formatFmsDateTime(cs.secondCallTime)}</strong> ({cs.secondCallRemarks || '-'})</span>
+                                          <span>3rd Call: <strong>{formatFmsDateTime(cs.thirdCallTime)}</strong> ({cs.thirdCallRemarks || '-'})</span>
                                         </div>
                                       </div>
                                     </td>
@@ -3804,105 +4481,7 @@ export default function App() {
                   )}
                 </div>
 
-                {/* PART B: NSRC DATABASE SHEET REGISTRY */}
-                <div id="nsrc-database" className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-                  <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 mb-2">
-                    <div className="flex items-center space-x-2">
-                      <FileSpreadsheet className="h-4.5 w-4.5 text-emerald-500" />
-                      <span className="font-display font-bold text-xs uppercase tracking-wider text-slate-800">NSRC REPORT REGISTRY ({filteredNSRC.length})</span>
-                    </div>
-                    <span className="text-[9px] bg-red-100 text-red-800 px-2 py-0.5 rounded font-mono font-bold uppercase">Password Protected: Affin123</span>
-                  </div>
 
-                  {filteredNSRC.length === 0 ? (
-                    <div className="p-8 text-center text-slate-400 text-xs">
-                      No NSRC entries mapped inside registry query. Choose 'NSRC' menu above to add data.
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto font-sans">
-                      <table className="w-full text-left text-xs text-slate-700">
-                        <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-bold uppercase text-[9px] tracking-widest">
-                            <th className="px-3 py-2">Customer Name</th>
-                            <th className="px-3 py-2">CIF Number</th>
-                            <th className="px-3 py-2">Account Number</th>
-                            <th className="px-3 py-2">Business Unit</th>
-                            <th className="px-3 py-2">Classification</th>
-                            <th className="px-3 py-2">NSRC DateStamp</th>
-                            <th className="px-3 py-2 text-center">Export Protected</th>
-                            <th className="px-3 py-2 text-center">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {filteredNSRC.map((ns) => (
-                            <React.Fragment key={ns.id}>
-                              <tr className="hover:bg-slate-50 transition-colors">
-                                <td className="px-3 py-2.5 font-bold text-slate-800 uppercase">{ns.name}</td>
-                                <td className="px-3 py-2.5 font-mono text-slate-700">{ns.cif}</td>
-                                <td className="px-3 py-2.5 font-mono text-slate-700">{ns.accountNumber}</td>
-                                <td className="px-3 py-2.5 text-slate-700 font-medium">{ns.businessUnit}</td>
-                                <td className="px-3 py-2.5 text-slate-500 font-mono">{ns.accountClassification}</td>
-                                <td className="px-3 py-2.5 text-indigo-700 font-bold font-mono text-[10px]">{ns.dateStamp}</td>
-                                <td className="px-2 py-1.5 text-center">
-                                  <button
-                                    onClick={() => handleExportNSRCExcel(ns)}
-                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 font-bold text-white rounded text-[10px] flex items-center inline-flex space-x-1 transition shadow-3xs"
-                                  >
-                                    <Download className="h-3 w-3" />
-                                    <span>Protected Excel</span>
-                                  </button>
-                                </td>
-                                <td className="px-2 py-1.5 text-center">
-                                  <button
-                                    onClick={() => setExpandedNsrcEntries(prev => ({ ...prev, [ns.id]: !prev[ns.id] }))}
-                                    className={`px-2 py-0.5 font-bold rounded text-[10px] transition ${
-                                      expandedNsrcEntries[ns.id]
-                                        ? "bg-slate-200 text-slate-705 font-bold"
-                                        : "bg-indigo-50 hover:bg-indigo-100 text-indigo-650"
-                                    }`}
-                                  >
-                                    {expandedNsrcEntries[ns.id] ? "Hide Details" : "Show Details"}
-                                  </button>
-                                </td>
-                              </tr>
-                              {expandedNsrcEntries[ns.id] && (
-                                <tr>
-                                  <td colSpan={8} className="bg-slate-50/50 px-4 py-1.5 border-b border-slate-100">
-                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-[11px] text-slate-500 gap-1.5">
-                                      <div className="flex items-center space-x-1.5 font-mono text-[10px]">
-                                        <Info className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                                        <span className="font-semibold text-slate-500">Classification Details:</span>
-                                        <span className="bg-slate-200 border border-slate-300 text-[10px] px-1.5 py-0.2 rounded font-bold text-slate-700"> {ns.accountBlockingType} </span>
-                                      </div>
-                                      <div className="flex items-center text-[11px] text-slate-850 truncate max-w-lg">
-                                        <strong>Generated Remarks: </strong>&nbsp;<span className="font-mono text-slate-900 font-bold ml-1 italic bg-white border border-slate-200 p-1.5 rounded shadow-3xs leading-relaxed inline-block"> "{ns.remarks || 'No remarks recorded.'}" </span>
-                                      </div>
-                                      <button
-                                        onClick={async () => {
-                                          if (confirm(`Erase NSRC record for "${ns.name}"?`)) {
-                                            try {
-                                              await deleteDoc(doc(db, "nsrcEntries", ns.id));
-                                            } catch (error) {
-                                              console.error("Firestore delete NSRC error:", error);
-                                              setNsrcEntries(nsrcEntries.filter(i => i.id !== ns.id));
-                                            }
-                                          }
-                                        }}
-                                        className="p-1 hover:text-red-500 text-slate-300 transition"
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </React.Fragment>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
 
                 {/* PART C: SYSTEM SESSIONS LOCK-AUDIT LOGS */}
                 <div id="system-audit-logs" className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
@@ -4184,347 +4763,7 @@ export default function App() {
           })()}
 
 
-          {/* 5. NSRC NEW REGISTER & TABLE TAB */}
-          {activeTab === "NSRC" && (
-            <motion.div
-              key="tab-nsrc"
-              initial={{ opacity: 0, scale: 0.99 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              className="space-y-4"
-            >
-              {/* DOUBLE DECKER INPUT TABLE: UPPER IS TITLE AND BELOW IS INPUT */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                
-                <div className="pb-3 border-b border-indigo-100 flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-2">
-                    <Shield className="h-5 w-5 text-indigo-500" />
-                    <div>
-                      <h4 className="font-display font-black text-sm uppercase tracking-wider text-slate-800">
-                        NSRC FRAUD REGISTRATION SHEET (AFFIN SECURE DOCK)
-                      </h4>
-                      <p className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Enforce compliant cell integrity with password protection "Affin123"</p>
-                    </div>
-                  </div>
-                  <span className="hidden sm:inline-block text-[10px] bg-slate-900 text-slate-200 font-mono font-bold border border-slate-800 px-3 py-1 rounded">
-                    Prefix Action: Starts on 1 triggers Auto-Fill
-                  </span>
-                </div>
 
-                <form onSubmit={handleSaveNSRC} className="space-y-4 text-xs font-sans">
-                  
-                  {/* REAL-TIME OPERATION AUTO-FILL BANNER */}
-                  {autofillSuggestion && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex sm:flex-row flex-col sm:items-center justify-between gap-3 text-slate-800 animate-pulse shadow-sm">
-                      <div className="flex items-start space-x-2.5">
-                        <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-bold text-blue-900 text-xs">Existed Reference Entry Detected!</p>
-                          <p className="text-[10px] text-slate-600 leading-tight mt-0.5">
-                            We matched operational records in <span className="font-bold text-slate-900">{autofillSuggestion.type} DB</span> under CIF <span className="font-mono font-bold bg-blue-100/60 px-1 text-slate-950">{autofillSuggestion.cif}</span> ({autofillSuggestion.name}). Would you like to autofill?
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleApplyAutofill}
-                        className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-3 py-1.5 rounded transition-all text-[11px] uppercase tracking-wide shrink-0 inline-flex items-center space-x-1"
-                      >
-                        <RefreshCw className="h-3 w-3" />
-                        <span>Autofill Form</span>
-                      </button>
-                    </div>
-                  )}
-
-                  {/* TWO-LAYERED LAYOUT TABLE: UPPER HEADER ACCENTS, LOWER VALUE CHOREOGRAPHY */}
-                  <div className="border border-slate-200 rounded overflow-hidden">
-                    
-                    {/* ROW 1: UPPER LAYER (LABEL HEADERS) */}
-                    <div className="grid grid-cols-1 md:grid-cols-6 divide-y md:divide-y-0 md:divide-x divide-slate-200 bg-slate-100 text-[10px] font-bold text-slate-600 uppercase tracking-wider text-center">
-                      <div className="py-2 px-3">Target Account Number</div>
-                      <div className="py-2 px-3">Account Blocking Type</div>
-                      <div className="py-2 px-3">Business Unit</div>
-                      <div className="py-2 px-3">Account Classification</div>
-                      <div className="py-2 px-3">Status/Block Description</div>
-                      <div className="py-2 px-3">Target blocking Remarks</div>
-                    </div>
-
-                    {/* ROW 2: LOWER LAYER (INPUT CONTROLS) */}
-                    <div className="grid grid-cols-1 md:grid-cols-6 divide-y md:divide-y-0 md:divide-x divide-slate-200 bg-white">
-                      
-                      {/* INPUT 1: Account number */}
-                      <div className="p-2 flex items-center">
-                        <input
-                          id="nsrc-input-accnum"
-                          type="text"
-                          required
-                          value={nsrcAccNum}
-                          onChange={(e) => setNsrcAccNum(e.target.value.replace(/[^\d]/g, ""))}
-                          placeholder="Starts with 1..."
-                          className="w-full h-8 px-2 font-mono font-bold border border-slate-200 hover:border-slate-300 rounded focus:outline-none focus:border-blue-500 text-slate-800"
-                        />
-                      </div>
-
-                      {/* INPUT 2: Account Blocking Type */}
-                      <div className="p-2 flex items-center">
-                        <input
-                          type="text"
-                          value={nsrcBlockType}
-                          onChange={(e) => setNsrcBlockType(e.target.value)}
-                          placeholder="Account Block Type"
-                          className="w-full h-8 px-2 border border-slate-200 rounded focus:outline-none text-slate-700"
-                        />
-                      </div>
-
-                      {/* INPUT 3: Business unit */}
-                      <div className="p-2 flex items-center">
-                        <input
-                          type="text"
-                          value={nsrcBusinessUnit}
-                          onChange={(e) => setNsrcBusinessUnit(e.target.value)}
-                          placeholder="e.g. AffinMax"
-                          className="w-full h-8 px-2 border border-slate-200 rounded focus:outline-none text-slate-700"
-                        />
-                      </div>
-
-                      {/* INPUT 4: Classification */}
-                      <div className="p-2 flex items-center">
-                        <input
-                          type="text"
-                          value={nsrcClassification}
-                          onChange={(e) => setNsrcClassification(e.target.value)}
-                          placeholder="e.g. Current"
-                          className="w-full h-8 px-2 border border-slate-200 rounded focus:outline-none text-slate-700 font-mono"
-                        />
-                      </div>
-
-                      {/* INPUT 5: status Block Description */}
-                      <div className="p-2 flex items-center">
-                        <input
-                          type="text"
-                          value={nsrcBlockDesc}
-                          onChange={(e) => setNsrcBlockDesc(e.target.value)}
-                          placeholder="Block Stamp"
-                          className="w-full h-8 px-2 border border-slate-200 rounded focus:outline-none text-[11px] font-mono text-slate-600"
-                        />
-                      </div>
-
-                      {/* INPUT 6: target block remarks */}
-                      <div className="p-2 flex items-center">
-                        <input
-                          type="text"
-                          value={nsrcRemarks}
-                          onChange={(e) => setNsrcRemarks(e.target.value)}
-                          placeholder="Remarks..."
-                          className="w-full h-8 px-2 border border-slate-200 rounded focus:outline-none text-[11px]"
-                        />
-                      </div>
-
-                    </div>
-                  </div>
-
-                  {/* BOTTOM REQUISITES: CUSTOMER IDENTIFIERS FOR FILE MATCHING REGULATION */}
-                  <div className="space-y-4 bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                      
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                          NSRC Case ID
-                        </label>
-                        <input
-                          type="text"
-                          value={nsrcCaseId}
-                          onChange={(e) => setNsrcCaseId(e.target.value)}
-                          placeholder="e.g. NSRC-95431A"
-                          className="w-full px-2 py-1.5 border border-slate-300 bg-white rounded font-mono font-semibold focus:outline-none focus:border-slate-400 text-slate-900"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                          Customer Identification (CIF)
-                        </label>
-                        <input
-                          id="nsrc-input-cif"
-                          type="text"
-                          required
-                          value={nsrcCif}
-                          onChange={(e) => setNsrcCif(e.target.value)}
-                          placeholder="CIF (eg: 350028093)"
-                          className="w-full px-2 py-1.5 border border-slate-300 bg-white rounded font-mono font-semibold focus:outline-none focus:border-slate-400"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                          Company/Officer Reg No
-                        </label>
-                        <input
-                          type="text"
-                          value={nsrcRegNo}
-                          onChange={(e) => setNsrcRegNo(e.target.value)}
-                          placeholder="Reg No (eg: 20260109658)"
-                          className="w-full px-2 py-1.5 border border-slate-300 bg-white rounded font-mono font-semibold focus:outline-none focus:border-slate-400"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                          Official Customer Name
-                        </label>
-                        <input
-                          id="nsrc-input-name"
-                          type="text"
-                          required
-                          value={nsrcName}
-                          onChange={(e) => setNsrcName(e.target.value)}
-                          placeholder="NAME OF USER"
-                          className="w-full px-2 py-1.5 border border-slate-300 bg-white rounded font-sans uppercase font-bold text-xs focus:outline-none focus:border-slate-400"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                          Data Block DateStamp
-                        </label>
-                        <input
-                          type="date"
-                          value={nsrcDateStamp}
-                          onChange={(e) => setNsrcDateStamp(e.target.value)}
-                          className="w-full px-2 py-1.5 border border-slate-300 bg-white rounded font-mono focus:outline-none focus:border-slate-400"
-                        />
-                      </div>
-
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-1.5">
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                          Suspicious Amount (RM)
-                        </label>
-                        <input
-                          type="text"
-                          value={nsrcAmount}
-                          onChange={(e) => setNsrcAmount(e.target.value)}
-                          placeholder="eg: RM2,500.00"
-                          className="w-full px-2 py-1.5 border border-slate-300 bg-white rounded font-mono font-semibold focus:outline-none focus:border-slate-400 text-indigo-700"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                          Earmark Amount (RM)
-                        </label>
-                        <input
-                          type="text"
-                          value={nsrcEarmarkAmount}
-                          onChange={(e) => setNsrcEarmarkAmount(e.target.value)}
-                          placeholder="eg: RM1,450.00"
-                          className="w-full px-2 py-1.5 border border-slate-300 bg-white rounded font-mono font-semibold focus:outline-none focus:border-slate-400 text-emerald-700"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                          Earmark Status/Action
-                        </label>
-                        <select
-                          value={nsrcEarmark}
-                          onChange={(e) => setNsrcEarmark(e.target.value)}
-                          className="w-full px-2 py-1.5 border border-slate-300 bg-white rounded font-semibold text-slate-700 focus:outline-none focus:border-slate-400"
-                        >
-                          <option value="Yes">Yes (Confirm Earmark)</option>
-                          <option value="No">No (Bypass Earmark)</option>
-                          <option value="Pending">Pending Audit</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                          Audit / Regulatory Reason
-                        </label>
-                        <input
-                          type="text"
-                          value={nsrcReason}
-                          onChange={(e) => setNsrcReason(e.target.value)}
-                          placeholder="eg: SUSPECTED MDD/MULE TRACING"
-                          className="w-full px-2 py-1.5 border border-slate-300 bg-white rounded font-sans font-medium focus:outline-none focus:border-slate-400"
-                        />
-                      </div>
-
-                      <div className="flex items-end">
-                        <button
-                          id="btn-save-nsrc"
-                          type="submit"
-                          className="w-full py-2 bg-slate-900 border border-slate-800 text-white font-bold rounded hover:bg-slate-700 transition flex items-center justify-center space-x-1.5"
-                        >
-                          <Plus className="h-4 w-4 text-emerald-400" />
-                          <span>Save NSRC Report</span>
-                        </button>
-                      </div>
-
-                    </div>
-                  </div>
-
-                </form>
-              </div>
-
-              {/* TABLE NSRC ENTRIES ALREADY STORED SUBMENU */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                <div className="flex items-center justify-between pb-3.5 border-b border-indigo-100 mb-3 block">
-                  <div>
-                    <h5 className="font-display font-bold text-xs uppercase tracking-wider text-indigo-900">
-                      NSRC Saved Database List
-                    </h5>
-                    <p className="text-[10px] text-slate-400">Total stored: {nsrcEntries.length} items. Select individual item row below to download official protected Excel sheet.</p>
-                  </div>
-                  <span className="text-[9px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-mono uppercase text-slate-500 font-bold">SQLITE SYNCHRONIZED LIVE</span>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-semibold uppercase text-[9px] tracking-widest">
-                        <th className="px-3 py-2">Customer Name</th>
-                        <th className="px-3 py-2">CIF Number</th>
-                        <th className="px-3 py-2">Account Number</th>
-                        <th className="px-3 py-2">Blocked Status</th>
-                        <th className="px-3 py-2">Suspicious Amount</th>
-                        <th className="px-3 py-2">Earmark Amount</th>
-                        <th className="px-3 py-2">Business Unit</th>
-                        <th className="px-3 py-2 text-center">Protected Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-sans">
-                      {nsrcEntries.map(it => (
-                        <tr key={it.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-3 py-3 font-bold uppercase text-slate-800">{it.name}</td>
-                          <td className="px-3 py-3 font-mono font-semibold text-slate-700">{it.cif}</td>
-                          <td className="px-3 py-3 font-mono text-slate-500">{it.accountNumber}</td>
-                          <td className="px-3 py-3 font-mono text-red-600 font-bold text-[10px]">{it.accountBlockingType}</td>
-                          <td className="px-3 py-3 font-mono text-indigo-700 font-bold">{it.amount || "—"}</td>
-                          <td className="px-3 py-3 font-mono text-emerald-700 font-bold">{it.earmarkAmount || "—"}</td>
-                          <td className="px-3 py-3 font-bold text-slate-700">{it.businessUnit}</td>
-                          <td className="px-3 py-3 text-center">
-                            <button
-                              onClick={() => handleExportNSRCExcel(it)}
-                              className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 font-bold text-white rounded text-[10px] inline-flex items-center space-x-1 shadow-3xs"
-                            >
-                              <Download className="h-3 w-3" />
-                              <span>Export excel Protected File</span>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-              </div>
-
-            </motion.div>
-          )}
 
           {activeTab === "ADMIN" && currentUser?.role === "Admin" && (
             <motion.div
@@ -4919,10 +5158,6 @@ export default function App() {
                               <span className="font-mono text-slate-800 font-bold">{dbMetric.casesCount} docs ({formatSize(dbMetric.casesBytes)})</span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-600 flex items-center"><span className="h-1.5 w-1.5 bg-indigo-500 rounded-full mr-2" />NSRC report ledger</span>
-                              <span className="font-mono text-slate-800 font-bold">{dbMetric.nsrcCount} docs ({formatSize(dbMetric.nsrcBytes)})</span>
-                            </div>
-                            <div className="flex items-center justify-between">
                               <span className="text-slate-600 flex items-center"><span className="h-1.5 w-1.5 bg-amber-500 rounded-full mr-2" />Audit session trails</span>
                               <span className="font-mono text-slate-800 font-bold">{dbMetric.logsCount} docs ({formatSize(dbMetric.logsBytes)})</span>
                             </div>
@@ -4962,26 +5197,6 @@ export default function App() {
                               <span className="text-left font-sans">Export Cases Database ({dbMetric.casesCount} Records)</span>
                             </div>
                             {casesExported ? (
-                              <span className="bg-emerald-600 text-white rounded-full p-0.5"><Check className="h-3 w-3" /></span>
-                            ) : (
-                              <Download className="h-4 w-4 text-slate-400" />
-                            )}
-                          </button>
-
-                          {/* EXPORT BUTTON 2 */}
-                          <button
-                            onClick={handleExportNsrc}
-                            className={`w-full border p-3 rounded-xl text-xs transition flex items-center justify-between cursor-pointer font-sans ${
-                              nsrcExported 
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-800 font-bold" 
-                                : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold"
-                            }`}
-                          >
-                            <div className="flex items-center space-x-2">
-                              <FileSpreadsheet className={`h-4.5 w-4.5 ${nsrcExported ? "text-emerald-600" : "text-slate-500"}`} />
-                              <span className="text-left font-sans">Export NSRC Reports Ledger ({dbMetric.nsrcCount} Records)</span>
-                            </div>
-                            {nsrcExported ? (
                               <span className="bg-emerald-600 text-white rounded-full p-0.5"><Check className="h-3 w-3" /></span>
                             ) : (
                               <Download className="h-4 w-4 text-slate-400" />
@@ -5042,7 +5257,7 @@ export default function App() {
                                 </div>
                                 <div className="flex justify-between text-red-600 font-bold text-[10px]">
                                   <span>PURGE MODEL:</span>
-                                  <span>{dbMetric.casesCount} CASES / {dbMetric.nsrcCount} NSRC</span>
+                                  <span>{dbMetric.casesCount} CASES</span>
                                 </div>
                                 <div className="flex justify-between text-emerald-600">
                                   <span>STATUS STATE:</span>
@@ -5069,7 +5284,7 @@ export default function App() {
                                   checked={acknowledgedBackup_2}
                                   onChange={(e) => setAcknowledgedBackup_2(e.target.checked)}
                                 />
-                                <span>I confirm that all NSRC reports are downloaded successfully.</span>
+                                <span>I confirm that all case logs are verified.</span>
                               </label>
                               <label className="flex items-start space-x-1.5 cursor-pointer">
                                 <input
@@ -5147,83 +5362,8 @@ export default function App() {
         </div>
       </footer>
 
-      {/* 5. PASSWORD DECRYPTION ACCESSIBILITY DIALOG LAYER */}
+      {/* 5. EXCEL EXPORT DIALOG LAYER */}
       <AnimatePresence>
-        {nsrcToExport && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-[9999] px-4 font-sans"
-          >
-            <motion.div 
-              initial={{ scale: 0.95, y: 15 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 15 }}
-              className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden"
-            >
-              <div className="bg-[#f5f5f7] border-b border-slate-100 px-4 py-3 flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Shield className="h-4 w-4 text-[#ffc000]" />
-                  <span className="font-semibold text-xs text-slate-800 uppercase tracking-wider font-mono">XLSX Decryption Key</span>
-                </div>
-                <button 
-                  onClick={() => setNsrcToExport(null)}
-                  className="text-slate-400 hover:text-slate-600 font-bold transition font-mono"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <form onSubmit={(e) => { e.preventDefault(); handlePasswordModalSubmit(); }} className="p-5 space-y-4 font-sans">
-                <div className="text-center space-y-1.5">
-                  <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">Secure Export Protection</p>
-                  <p className="text-[13px] text-slate-600 font-medium">
-                    The report of <strong className="text-slate-900 uppercase">'{nsrcToExport.name}'</strong> is encrypted. Please enter the compliance master password.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <input 
-                    type="password"
-                    required
-                    autoFocus
-                    value={exportPassword}
-                    onChange={(e) => {
-                      setExportPassword(e.target.value);
-                      setPasswordModalError("");
-                    }}
-                    placeholder="Enter Affin password..."
-                    className="w-full text-center tracking-widest text-[#0071e3] font-bold py-2 px-3 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-100 rounded-lg text-sm bg-slate-50"
-                  />
-                  {passwordModalError && (
-                    <p className="text-center text-xs text-red-600 font-bold font-mono">
-                      {passwordModalError}
-                    </p>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setNsrcToExport(null)}
-                    className="py-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-xs font-bold transition font-sans"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    <span>Decrypt & Save</span>
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </motion.div>
-        )}
-
         {excelExportPending && (
           <motion.div 
             initial={{ opacity: 0 }}

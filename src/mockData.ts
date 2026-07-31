@@ -3,11 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { FMSCase, NSRCEntry, BankFI } from "./types";
+import { FMSCase, BankFI } from "./types";
 
 export const INITIAL_CASES: FMSCase[] = [];
-
-export const INITIAL_NSRC: NSRCEntry[] = [];
 
 export const MALAYSIAN_BANKS: BankFI[] = [
   {

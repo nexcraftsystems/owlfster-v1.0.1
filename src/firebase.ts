@@ -1,7 +1,16 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import firebaseConfig from "../firebase-applet-config.json";
 
-const app = initializeApp(firebaseConfig);
-// CRITICAL: The app will break if this line does not use the firestoreDatabaseId
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const firebaseConfig = {
+  apiKey: "AIzaSyCl7MDE1zOuXmAcqc5c_xhsZu_w-2ay1Ok",
+  authDomain: "owlfster.firebaseapp.com",
+  projectId: "owlfster",
+  storageBucket: "owlfster.firebasestorage.app",
+  messagingSenderId: "240333256153",
+  appId: "1:240333256153:web:b895b523d79e88656a55c8"
+};
+
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+
+export const db = getFirestore(app);
+

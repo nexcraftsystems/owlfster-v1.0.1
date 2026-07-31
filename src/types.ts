@@ -39,27 +39,6 @@ export interface FMSCase {
   createdAt: string;
 }
 
-export interface NSRCEntry {
-  id: string;
-  caseId: string;              // Case ID
-  cif: string;
-  regNo: string;               // Company/Officer registration number (Reg No)
-  name: string;
-  accountNumber: string;
-  accountBlockingType: string; // "NSRC Request"
-  businessUnit: string;        // "RIB / Affinmax"
-  accountClassification: string; // "Account Type"
-  statusBlockDesc: string;     // "Action Taken"
-  amount: string;              // Registered/Disputed Amount
-  earmarkAmount: string;       // "Earmark Amount" (Amount field requested)
-  earmark: string;             // "Earmark" (Earmark field requested)
-  remarks: string;             // "Remark"
-  reason: string;              // "Reason"
-  dateStamp: string;
-  createdAt: string;
-  officerPsid?: string;        // Assigned Officer PSID who created this NSRC
-}
-
 export interface BankFI {
   name: string;
   code: string;
@@ -70,3 +49,4 @@ export interface BankFI {
   prefixPattern: string;
   description: string;
 }
+

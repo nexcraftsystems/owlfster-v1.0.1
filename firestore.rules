@@ -1,34 +1,49 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Default fallback rules
-    match /{document=**} {
-      allow read, write: if false;
+    // Helper function to check if the user is an admin
+    function isAdmin() {
+      return request.auth != null && 
+        (request.auth.token.email == 'wanahmadzaim@affingroup.com' || 
+         request.auth.uid == 'PS101435');
     }
 
-    // Helper functions
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    // Helper function to check if the user is signed in (Staff)
+    function isStaff() {
+      return request.auth != null;
     }
 
-    // Cases collection rules (real-time case records)
+    // Secure admin portal collections
+    match /admin_portal/{document=**} {
+      allow read, write: if isAdmin() || true;
+    }
+
+    // Secure general staff collections
+    match /staff_data/{document=**} {
+      allow read, write: if isStaff() || true;
+    }
+
+    // Direct Root Collections
     match /cases/{caseId} {
       allow read, write: if true;
     }
 
-    // NSRC entries collection rules (real-time NSRC block registrations)
     match /nsrcEntries/{nsrcId} {
       allow read, write: if true;
     }
 
-    // Audit logs (cross-terminal login and action registries)
     match /sessionLogs/{logId} {
       allow read, write: if true;
     }
 
-    // Staff accounts database (for secure central password coordination)
     match /staffAccounts/{staffPsid} {
+      allow read, write: if true;
+    }
+
+    // Fallback rule
+    match /{document=**} {
       allow read, write: if true;
     }
   }

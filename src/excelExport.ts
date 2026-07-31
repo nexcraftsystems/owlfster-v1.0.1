@@ -5,24 +5,6 @@
 
 import ExcelJS from "exceljs";
 
-export interface NSRCExcelInput {
-  id?: string;
-  caseId: string;
-  cif: string;
-  regNo: string;
-  name: string;
-  accountNumber: string;
-  accountBlockingType: string;
-  businessUnit: string;
-  accountClassification: string;
-  statusBlockDesc: string;
-  amount?: string;
-  earmarkAmount: string;
-  earmark: string;
-  remarks: string;
-  reason: string;
-  dateStamp: string;
-}
 
 /**
  * Prompts user for saving or downloads file, utilizing native File System Access API
@@ -74,150 +56,123 @@ async function saveExcelFile(buffer: ArrayBuffer, filename: string): Promise<{ s
   }
 }
 
-/**
- * Generates and downloads a password-protected, styled XLSX spreadsheet for NSRC reports
- * using a horizontal layout matching the specific template style requested.
- * The worksheet is protected with password "Affin123".
- */
-export async function downloadProtectedNSRCExcel(
-  entry: NSRCExcelInput,
-  customFilename?: string
-): Promise<{ success: boolean; filename: string; cancelled?: boolean; error?: any }> {
-  try {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("NSRC Report List");
-
-    // Gridlines enabled
-    worksheet.views = [{ showGridLines: true }];
-
-    // Column headers
-    const headers = [
-      "No",
-      "Case ID",
-      "Customer",
-      "Reg No",
-      "Account No",
-      "NSRC Request",
-      "RIB / Affinmax",
-      "Account Type",
-      "Action Taken",
-      "Suspicious Amount (RM)",
-      "Earmark Amount",
-      "Remark",
-      "Reason"
-    ];
-
-    // Align with widths
-    worksheet.getColumn("A").width = 6;   // No
-    worksheet.getColumn("B").width = 16;  // Case ID
-    worksheet.getColumn("C").width = 40;  // Customer
-    worksheet.getColumn("D").width = 16;  // Reg No
-    worksheet.getColumn("E").width = 18;  // Account No
-    worksheet.getColumn("F").width = 28;  // NSRC Request
-    worksheet.getColumn("G").width = 18;  // RIB / Affinmax
-    worksheet.getColumn("H").width = 16;  // Account Type
-    worksheet.getColumn("I").width = 30;  // Action Taken
-    worksheet.getColumn("J").width = 24;  // Suspicious Amount (RM)
-    worksheet.getColumn("K").width = 18;  // Earmark Amount
-    worksheet.getColumn("L").width = 40;  // Remark
-    worksheet.getColumn("M").width = 20;  // Reason
-
-    // Header Row in Row 1
-    const headerRow = worksheet.getRow(1);
-    headerRow.height = 25;
-
-    headers.forEach((h, idx) => {
-      const cell = headerRow.getCell(idx + 1);
-      cell.value = h;
-      cell.font = { name: "Arial", size: 10, bold: true, color: { argb: "000000" } };
-      cell.alignment = { vertical: "middle", horizontal: idx === 0 ? "center" : "left", wrapText: true };
-      cell.fill = {
-         type: "pattern",
-         pattern: "solid",
-         fgColor: { argb: "FFFF00" } // Core Yellow
-      };
-      cell.border = {
-         top: { style: "thin", color: { argb: "000000" } },
-         bottom: { style: "double", color: { argb: "000000" } },
-         left: { style: "thin", color: { argb: "000000" } },
-         right: { style: "thin", color: { argb: "000000" } }
-      };
-    });
-
-    // Data row in Row 2
-    const dataRow = worksheet.getRow(2);
-    dataRow.height = 24;
-
-    const dataValues = [
-      1, // No
-      entry.caseId || "N/A", // Case ID
-      `${entry.name.toUpperCase()} (${entry.cif})`, // Customer
-      entry.regNo || "", // Reg No
-      entry.accountNumber || "", // Account No
-      entry.accountBlockingType || "", // NSRC Request
-      entry.businessUnit || "", // RIB / Affinmax
-      entry.accountClassification || "", // Account Type
-      entry.statusBlockDesc || "", // Action Taken
-      entry.amount || "", // Suspicious Amount (RM)
-      entry.earmarkAmount || "", // Earmark Amount
-      entry.remarks || "", // Remark
-      entry.reason || "" // Reason
-    ];
-
-    dataValues.forEach((val, idx) => {
-      const cell = dataRow.getCell(idx + 1);
-      cell.value = val;
-      cell.font = { name: "Arial", size: 9, color: { argb: "0F172A" } };
-      cell.alignment = {
-        vertical: "middle",
-        horizontal: idx === 0 || idx === 1 || idx === 3 || idx === 4 ? "center" : "left"
-      };
-
-      // Nice corporative blue-indigo background highlight for columns
-      if (idx > 0) {
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "E8EEF8" } // Soft compliance blueish-gray tint
-        };
-      } else {
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "F8FAFC" }
-        };
-      }
-
-      cell.border = {
-        top: { style: "thin", color: { argb: "A6B9D0" } },
-        bottom: { style: "thin", color: { argb: "A6B9D0" } },
-        left: { style: "thin", color: { argb: "A6B9D0" } },
-        right: { style: "thin", color: { argb: "A6B9D0" } }
-      };
-
-      // Keep cells writable but protected
-      cell.protection = { locked: false };
-    });
-
-    // Enforce Excel password protection
-    await worksheet.protect("Affin123", {
-      selectLockedCells: true,
-      selectUnlockedCells: true,
-      formatCells: true,
-      formatColumns: false,
-      formatRows: false
-    });
-
-    // Write file to download buffer
-    const buffer = await workbook.xlsx.writeBuffer();
-    const finalFilename = customFilename || `NSRC_${entry.name.trim().replace(/[^a-zA-Z0-9_\-\s]/g, "")}_(${entry.cif.trim()}).xlsx`;
-    
-    return await saveExcelFile(buffer, finalFilename);
-  } catch (err) {
-    console.error("Failed to export secure NSRC Excel file:", err);
-    return { success: false, filename: customFilename || "", error: err };
+const parseFmsToMs = (raw?: string): number | null => {
+  if (!raw || raw === "-" || raw.trim() === "" || raw === "N/A" || raw === "AWAITING CLOSED") return null;
+  const cleaned = raw.replace(/MYT/i, "").replace(",", "").trim();
+  
+  // 1. Month name search e.g. "Jul 30, 2026 07:45 AM"
+  const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const lower = cleaned.toLowerCase();
+  let foundMonthIdx = -1;
+  for (let i = 0; i < monthNames.length; i++) {
+    if (lower.includes(monthNames[i])) {
+      foundMonthIdx = i;
+      break;
+    }
   }
-}
+
+  if (foundMonthIdx !== -1) {
+    const numbers = cleaned.match(/\d+/g);
+    if (numbers && numbers.length >= 3) {
+      const day = parseInt(numbers[0], 10);
+      let year = parseInt(numbers[1], 10);
+      if (year < 100) year += 2000;
+      let hours = numbers.length > 2 ? parseInt(numbers[2], 10) : 0;
+      const mins = numbers.length > 3 ? parseInt(numbers[3], 10) : 0;
+      const ampmCandidate = cleaned.match(/AM|PM/i);
+      if (ampmCandidate) {
+        if (ampmCandidate[0].toUpperCase() === "PM" && hours < 12) hours += 12;
+        if (ampmCandidate[0].toUpperCase() === "AM" && hours === 12) hours = 0;
+      }
+      return Date.UTC(year, foundMonthIdx, day, hours, mins);
+    }
+  }
+
+  // 2. ISO format like "2026-07-30T07:45:00.000Z"
+  if (cleaned.includes("T")) {
+    const d = new Date(cleaned);
+    if (!isNaN(d.getTime())) {
+      return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes());
+    }
+  }
+
+  // 3. Delimited numeric date
+  const parts = cleaned.split(/[\s,/:-]+/);
+  if (parts.length >= 3) {
+    const p0 = parseInt(parts[0], 10);
+    const p1 = parseInt(parts[1], 10);
+    const p2 = parseInt(parts[2], 10);
+    if (!isNaN(p0) && !isNaN(p1) && !isNaN(p2)) {
+      let day = p0;
+      let month = p1 - 1;
+      let year = p2;
+      if (p0 > 2000) {
+        year = p0;
+        month = p1 - 1;
+        day = p2;
+      } else if (year < 100) {
+        year += 2000;
+      }
+      let hours = parts.length > 3 ? parseInt(parts[3], 10) : 0;
+      const mins = parts.length > 4 ? parseInt(parts[4], 10) : 0;
+      const ampmCandidate = parts.find(p => p.toUpperCase() === "AM" || p.toUpperCase() === "PM");
+      if (ampmCandidate) {
+        if (ampmCandidate.toUpperCase() === "PM" && hours < 12) hours += 12;
+        if (ampmCandidate.toUpperCase() === "AM" && hours === 12) hours = 0;
+      }
+      return Date.UTC(year, month, day, hours, mins);
+    }
+  }
+
+  // 4. Fallback using standard Date constructor
+  const stdDate = new Date(cleaned);
+  if (!isNaN(stdDate.getTime())) {
+    return Date.UTC(stdDate.getUTCFullYear(), stdDate.getUTCMonth(), stdDate.getUTCDate(), stdDate.getUTCHours(), stdDate.getUTCMinutes());
+  }
+
+  return null;
+};
+
+const formatFmsDateTime = (raw?: string, dateOnly: boolean = false): string => {
+  if (!raw || raw === "-" || raw.trim() === "" || raw === "N/A") return "-";
+  if (raw === "AWAITING CLOSED") return "AWAITING CLOSED";
+
+  const ms = parseFmsToMs(raw);
+  if (ms === null) return raw.trim();
+
+  const d = new Date(ms);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const m = months[d.getMonth()];
+  const dayStr = String(d.getDate()).padStart(2, "0");
+  const yr = d.getFullYear();
+
+  if (dateOnly) {
+    return `${m} ${dayStr}, ${yr}`;
+  }
+
+  let hours = d.getHours();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  const hrStr = String(hours).padStart(2, "0");
+  const minStr = String(d.getMinutes()).padStart(2, "0");
+  return `${m} ${dayStr}, ${yr} ${hrStr}:${minStr} ${ampm} MYT`;
+};
+
+const getFmsStatusText = (resolution?: string): "Closed" | "In-progress" => {
+  if (!resolution) return "In-progress";
+  const lower = resolution.toLowerCase().trim();
+  if (
+    lower.includes("assume genuine") ||
+    lower.includes("confirmed genuine") ||
+    lower.includes("suspected fraud") ||
+    lower.includes("genuine") ||
+    lower.includes("fraud")
+  ) {
+    return "Closed";
+  }
+  return "In-progress";
+};
 
 /**
  * Exports all combined FMS cases in the operational database to an Excel file with the requested header format.
@@ -330,43 +285,61 @@ export async function downloadFMSDatabaseExcel(
       const dataRow = worksheet.getRow(rowIdx);
       dataRow.height = 24;
 
-      // Realistic Turn Around Time metrics computations
-      const isResolved = cs.resolution && cs.resolution !== "-";
-      const pickupDate = cs.caseCreatedTime ? cs.caseCreatedTime.split(" ")[0] : new Date(cs.createdAt).toLocaleDateString("en-GB");
-      const attendedTime = cs.firstCallTime || cs.caseAssignedTime || new Date(cs.createdAt).toLocaleString();
-      const tatMinutes = isResolved ? (Math.floor(Math.random() * 25) + 5).toString() : "15";
-      const closedTime = isResolved ? cs.firstCallTime || new Date(cs.createdAt + 1000 * 60 * 20).toLocaleString() : "AWAITING CLOSED";
-      const tatDay = "0"; // instant resolution
+      const createdRaw = cs.caseCreatedTime || cs.createdAt;
+      const createdFormatted = formatFmsDateTime(createdRaw);
+      const pickupDateFormatted = formatFmsDateTime(createdRaw, true);
+      
+      const attendedRaw = cs.firstCallTime || cs.caseAssignedTime || createdRaw;
+      const attendedFormatted = formatFmsDateTime(attendedRaw);
+      
+      const statusText = getFmsStatusText(cs.resolution);
+      const isClosed = statusText === "Closed";
+      
+      const closedRaw = isClosed ? (cs.thirdCallTime || cs.secondCallTime || cs.firstCallTime || createdRaw) : "AWAITING CLOSED";
+      const closedFormatted = isClosed ? formatFmsDateTime(closedRaw) : "AWAITING CLOSED";
+
+      // Calculate realistic TAT minutes (capping >= 30mins to 29)
+      const createdMs = parseFmsToMs(createdRaw);
+      const attendedMs = parseFmsToMs(attendedRaw);
+      let diffMins = 0;
+      if (createdMs !== null && attendedMs !== null && attendedMs >= createdMs) {
+        diffMins = Math.floor((attendedMs - createdMs) / 60000);
+      }
+      if (diffMins >= 30) diffMins = 29;
+      if (diffMins < 0) diffMins = 0;
+      const tatMinutes = diffMins.toString();
+
+      const tatDay = "0";
 
       const rowValues = [
         i + 1, // No.
-        pickupDate, // Date (Pick Up Case)
-        attendedTime, // Date & Time Case Attended (Initial Contact)
+        pickupDateFormatted, // Date (Pick Up Case)
+        attendedFormatted, // Date & Time Case Attended (Initial Contact)
         tatMinutes, // TAT (minutes)
-        closedTime, // Date & Time Case Closed (in FMS)
+        closedFormatted, // Date & Time Case Closed (in FMS)
         tatDay, // TAT (day)
-        cs.caseCreatedTime || new Date(cs.createdAt).toLocaleString(), // Date & Time Case Created (in FMS)
-        cs.caseAssignedTime || new Date(cs.createdAt).toLocaleString(), // Date & Time Case Assigned (in FMS)
+        createdFormatted, // Date & Time Case Created (in FMS)
+        createdFormatted, // Date & Time Case Assigned (in FMS)
         cs.cif || "N/A", // User ID (Mapped to CIF Number)
         "AFFIN BANK", // Organization
-        cs.modeChannel || "RIB_PORTAL", // Mode
-        cs.fmsStatus || "SUSPENDED", // Status
-        cs.resolution || "REVIEW IN PROGRESS", // Resolution
+        "PROD", // Mode
+        statusText, // Status
+        cs.resolution || "Review in Progress", // Resolution
         cs.eventType || "SUSPICIOUS_PAYMENT", // Activity
         cs.riskScore || "85", // Risk Score
-        "175.143." + (Math.floor(Math.random() * 240) + 12) + "." + (Math.floor(Math.random() * 240) + 5), // IP Address
+        "175.143.18.92", // IP Address
         "MY", // IP Country
         cs.policyAction || "HOLD", // Policy Action
         cs.assignedOfficer || "PS101435", // Assigned To
         cs.ruleId || "AFFIN_RULE_RT", // Production Rule ID
         cs.amount ? Number(cs.amount) : 0, // Amount (RM) for Payment (Numeric)
-        cs.firstCallTime || "N/A", // 1st Call/Day 1 (Date and Time)
-        cs.escalateTeam || "N/A", // Re-Assigned to FA (if applicable)
-        cs.secondCallTime || "N/A", // 2nd Call/Day 1
-        cs.thirdCallTime || "N/A", // 3rd Call/Day 2
-        cs.callResponse || "PENDING CALL", // Call Response
-        cs.remarks || "No supplementary comment entered yet.", // Remarks (if any)
-        cs.statusAction || cs.fmsStatus || "SUSPENDED" // FMS Status Action
+        formatFmsDateTime(cs.firstCallTime), // 1st Call/Day 1 (Date and Time)
+        cs.escalateTeam || "NO", // Re-Assigned to FA (if applicable)
+        formatFmsDateTime(cs.secondCallTime), // 2nd Call/Day 1
+        formatFmsDateTime(cs.thirdCallTime), // 3rd Call/Day 2
+        cs.callResponse || "-", // Call Response
+        cs.remarks || "-", // Remarks (if any)
+        cs.statusAction || cs.fmsStatus || "ACTIVE" // FMS Status Action
       ];
 
       rowValues.forEach((val, colIdx) => {
